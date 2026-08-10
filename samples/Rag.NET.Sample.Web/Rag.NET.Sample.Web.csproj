@@ -25,10 +25,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="documents\**\*" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
-
-  <ItemGroup>
     <Compile Remove="Program - Copy.cs" />
   </ItemGroup>
 

@@ -14,6 +14,7 @@ using Rag.NET.Models;
 using Rag.NET.Models.Options;
 using Rag.NET.Parsers.Html;
 using Rag.NET.Parsers.Pdf;
+using Rag.NET.Sample.Web;
 
 AzureOpenAIClient azureClient = new(
     new Uri(Environment.GetEnvironmentVariable("AZURE_OPENAI_URL2")!),
@@ -36,8 +37,8 @@ services
     .AddRagNet(static rag => rag
         .UseChunkingStrategy<RecursiveChunkingStrategy>(static options =>
         {
-            options.MaxChunkSize = 1000;
-            options.Overlap = 50;
+            options.MaxChunkSize = 2000;
+            options.Overlap = 200;
         })
         .UseAzureAISearch(
             new Uri(Environment.GetEnvironmentVariable("AZURE_AI_SEARCH_URL")!),
@@ -79,15 +80,29 @@ var progress = new Progress<IngestionProgress>(static p => Console.WriteLine($"{
 
 var httpClient = new HttpClient
 {
-    BaseAddress = new Uri("https://www.abp.nl")
+    //BaseAddress = new Uri("https://www.abp.nl")
 };
-var myProvider = new WebCrawlerDataProvider("https://www.abp.nl", httpClient, new WebCrawlerOptions
+//var myProvider = new WebCrawlerDataProvider("https://www.abp.nl", httpClient, new WebCrawlerOptions
+//{
+//    MaxDepth = 3,
+//    MaxPages = 100,
+//    SameDomain = true,
+//    RespectRobotsTxt = false
+//});
+
+var excludedUrls = new List<string>
 {
-    MaxDepth = 3,
-    MaxPages = 1000,
-    SameDomain = true,
-    RespectRobotsTxt = true
-});
+    "https://www.abp.nl/werkgevers",
+    "https://www.abp.nl/over-abp/over-de-organisatie",
+    "https://www.abp.nl/over-abp/onze-financiele-situatie",
+    "https://www.abp.nl/nieuws-en-pers",
+    "https://www.abp.nl/contact/u-bent-het-ergens-niet-mee-eens/commissie-van-beroep",
+    "https://www.abp.nl/english",
+    "https://www.abp.nl/militair",
+    "https://www.abp.nl/videos",
+    "https://www.abp.nl/over-deze-site"
+};
+var mySiteMap = new MySitemapDataProvider("https://www.abp.nl/sitemap.xml", httpClient, excludedUrls);
 
 var baseMetadata = new DocumentMetadata
 {
@@ -96,7 +111,11 @@ var baseMetadata = new DocumentMetadata
     ContentType = "text/html"
 };
 
-var result = await pipeline.IngestFromProviderAsync(myProvider, new ProviderId("combined"),
+var hashStorePath = @"c:\users\stefheyenrath\downloads\rag-content-hashes.json";
+var hashStore = new JsonFileContentHashStore(hashStorePath);
+
+var result = await pipeline.IngestFromProviderAsync(mySiteMap, new ProviderId("web"),
+    hashStore: hashStore,
     progress: progress,
     baseMetadata: baseMetadata,
     cleanupMode: CleanupMode.Full);
@@ -104,20 +123,27 @@ Console.WriteLine($"Ingested: {result.Ingested}, Skipped: {result.Skipped}, Dele
 
 var o = new RagOptions
 {
+    //SystemPrompt =
+    //"""
+    //    You are a helpful assistant that answers questions based on the provided context.
+    //    When you cannot give a good answer based on the sources, return 'I cannot find any relevant information.'
+    //""",
+
     SystemPrompt =
     """
-        You are a helpful assistant that answers questions based on the provided context.
-        When you cannot give a good answer based on the sources, return 'I cannot find any relevant information.'
+        Je bent een behulpzame assistent die vragen beantwoordt op basis van de verstrekte context.
+        Gebruik Taalniveau CEFR B1/B2. Geef duidelijke en beknopte antwoorden.
+        Wanneer je geen goed antwoord kunt geven op basis van de bronnen, geef dan 'Ik kan geen relevante informatie vinden.'
     """,
 
     TopK = 5,
-    MinScore = 0.1,
+    MinScore = 0.8,
     UseHybridSearch = true,
     //Temperature = 0.4f
 };
 
 
-var azureResponse0 = await pipeline.AskAsync("Ik ga bolgend jaar met pensioen, maar mijn partner pas over 5 jaar, wat is handig om te doen in mijn situatie?", o);
+var azureResponse0 = await pipeline.AskAsync("Ik ben 66 en kan volgend jaar met pensioen, maar mijn partner pas over 5 jaar, wat is handig om te doen in mijn situatie?", o);
 Console.WriteLine("\r\n" + azureResponse0.Answer);
 
 
