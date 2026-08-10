@@ -9,9 +9,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Rag.NET.Chunking\Rag.NET.Chunking.csproj" />
+    <ProjectReference Include="..\..\src\Rag.NET.DataProviders.Web\Rag.NET.DataProviders.Web.csproj" />
+    <ProjectReference Include="..\..\src\Rag.NET.Parsers.Html\Rag.NET.Parsers.Html.csproj" />
     <ProjectReference Include="..\..\src\Rag.NET.VectorStores.AzureAISearch\Rag.NET.VectorStores.AzureAISearch.csproj" />
     <ProjectReference Include="..\..\src\Rag.NET\Rag.NET.csproj" />
-    <ProjectReference Include="..\..\src\Rag.NET.VectorStores.PgVector\Rag.NET.VectorStores.PgVector.csproj" />
     <ProjectReference Include="..\..\src\Rag.NET.Parsers.Pdf\Rag.NET.Parsers.Pdf.csproj" />
     <PackageReference Include="Microsoft.Extensions.AI" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
@@ -19,7 +20,7 @@
 
     <!--<PackageReference Include="Testcontainers.PostgreSql" />-->
 
-    <PackageReference Include="Azure.AI.OpenAI"  />
+    <PackageReference Include="Azure.AI.OpenAI" />
     
   </ItemGroup>
 

@@ -104,7 +104,27 @@ public sealed class WebCrawlerDataProvider : IFileContentProvider
         try
         {
             var robotsUrl = new Uri(seedUri, "/robots.txt").ToString();
-            var content = await _httpClient.GetStringAsync(robotsUrl, ct).ConfigureAwait(false);
+            using var response = await _httpClient.GetAsync(robotsUrl, ct).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+
+            var bytes = await response.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+
+            // Try to get encoding from Content-Type header, fallback to UTF-8
+            var encoding = Encoding.UTF8;
+            var charset = response.Content.Headers.ContentType?.CharSet;
+            if (!string.IsNullOrEmpty(charset))
+            {
+                try
+                {
+                    encoding = Encoding.GetEncoding(charset);
+                }
+                catch (ArgumentException)
+                {
+                    // Invalid charset, use UTF-8 fallback
+                }
+            }
+
+            var content = encoding.GetString(bytes);
             return ParseRobotsDisallowed(content);
         }
         catch (HttpRequestException)

@@ -1,157 +1,235 @@
-using System.ClientModel;
+using Azure;
+using Azure.AI.OpenAI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
+using OpenAI;
+using OpenAI.Embeddings;
 using Rag.NET.Abstractions;
+using Rag.NET.AzureAISearch;
+using Rag.NET.Chunking;
+using Rag.NET.DataProviders;
 using Rag.NET.DependencyInjection;
 using Rag.NET.Models;
+using Rag.NET.Models.Options;
 using Rag.NET.Parsers.Pdf;
-using Rag.NET.PgVector;
-using OpenAI;
-using Testcontainers.PostgreSql;
+using System.Runtime.CompilerServices;
+using ZeroAlloc.Results;
 
-// --- Start PostgreSQL container ---
-Console.WriteLine("Starting PostgreSQL container...");
-var postgres = new PostgreSqlBuilder("pgvector/pgvector:pg17").Build();
-await postgres.StartAsync();
-var connectionString = postgres.GetConnectionString();
-Console.WriteLine("PostgreSQL ready.");
+AzureOpenAIClient azureClient = new(
+    new Uri(Environment.GetEnvironmentVariable("AZURE_OPENAI_URL2")!),
+    new AzureKeyCredential(Environment.GetEnvironmentVariable("AZURE_OPENAI_KEY2")!));
 
-try
+IChatClient chatClient = azureClient.GetChatClient("gpt-5")
+    .AsIChatClient();
+
+var services = new ServiceCollection();
+services.AddChatClient(chatClient);
+
+EmbeddingClient embeddingClient = azureClient.GetEmbeddingClient("text-embedding-3-small");
+
+services.AddEmbeddingGenerator(embeddingClient.AsIEmbeddingGenerator());
+
+services.AddSingleton<IPromptObserver, PromptDump>();
+
+// Configure Rag.NET
+services
+    .AddRagNet(static rag => rag
+        .UseChunkingStrategy<RecursiveChunkingStrategy>(static options =>
+        {
+            //options.MaxChunkSize = 1000;
+            //options.Overlap = 50;
+        })
+        .UseAzureAISearch(
+            new Uri(Environment.GetEnvironmentVariable("AZURE_AI_SEARCH_URL")!),
+            //"field-guide-to-data-science",
+            "combined-index",
+            new AzureKeyCredential(Environment.GetEnvironmentVariable("AZURE_AI_SEARCH_KEY")!)
+        )
+        .AddPdfParser()
+    );
+
+var provider = services.BuildServiceProvider();
+var vectorStore = (AzureAISearchVectorStore) provider.GetRequiredService<IVectorStore>();
+await vectorStore.InitializeAsync();
+
+var pipeline = provider.GetRequiredService<IRagPipeline>();
+
+var progress = new Progress<IngestionProgress>(static p => Console.WriteLine($"{p.DocumentId} {p.Stage} {p.Message}"));
+
+//var metadata = new DocumentMetadata
+//{
+//    DocumentId = new DocumentId("field-guide-to-data-science"),
+//    FileName = "2015-field-guide-to-data-science-160211215115.pdf",
+//    ContentType = "application/pdf",
+//    CreatedAt = DateTime.Now,
+//    UpdatedAt = DateTime.Now
+//};
+
+//await using var stream = File.OpenRead(@"c:\users\stefheyenrath\downloads\2015-field-guide-to-data-science-160211215115.pdf");
+
+//var result = await pipeline.IngestAsync(stream, metadata, progress: progress);
+//if (result.IsSuccess)
+//{
+//    Console.WriteLine($"Stored {result.Value.ChunksStored} chunks");
+//}
+//else
+//{
+//    Console.WriteLine($"Ingestion failed: {result.Error}");
+//}
+
+
+var myProvider = new FileContentProvider();
+
+var baseMetadata = new DocumentMetadata
 {
-    // --- Configure services ---
-    var provider = Environment.GetEnvironmentVariable("RAG_PROVIDER") ?? "ollama";
-    var services = new ServiceCollection();
+    DocumentId = new DocumentId("dummy"),
+    FileName = "dummy.pdf",
+    ContentType = "application/pdf"
+};
 
-    if (provider.Equals("openai", StringComparison.OrdinalIgnoreCase))
+var result = await pipeline.IngestFromProviderAsync(myProvider, new ProviderId("combined"),
+    hashStore: new MyContentHashStore(true),
+    progress: progress,
+    baseMetadata: baseMetadata,
+    cleanupMode: CleanupMode.Full);
+Console.WriteLine($"Ingested: {result.Ingested}, Skipped: {result.Skipped}, Deleted: {result.Deleted}");
+
+var o = new RagOptions
+{
+    SystemPrompt =
+    """
+        You are a helpful assistant that answers questions based on the provided context.
+        When you cannot give a good answer based on the sources, return 'I cannot find any relevant information.'
+    """,
+
+    TopK = 5,
+    MinScore = 0.1,
+    UseHybridSearch = true,
+    //Temperature = 0.4f
+};
+
+
+var azureResponse0 = await pipeline.AskAsync("Explain why the moon appears to change shape.", o);
+Console.WriteLine("\r\n" + azureResponse0.Answer);
+
+
+//if (false)
+//{
+//    var response0 = await pipeline.AskAsync("What is my address?", o);
+//    Console.WriteLine("\r\n" + response0.Answer);
+
+//    var response1 = await pipeline.AskAsync("What are fractals?");
+//    Console.WriteLine("\r\n" + response1.Answer);
+//    // Fractals are mathematical sets characterized by self-similar patterns: as you zoom in, the same patterns reappear at smaller scales.
+//    // A common analogy is a stalk of broccoli, where each piece resembles the whole. [Source 1]
+
+//    var response2 = await pipeline.AskAsync("What is the advice stage of data maturity?", o);
+//    Console.WriteLine("\r\n" + response2.Answer);
+//    // The Advise stage is the most mature stage in the data science maturity model.
+//    // It's where analytics are conducted with the explicit intent to produce an output that advises-delivering true insights that drive decisions and competitive advantage.
+//    // Few organizations operate at this level, and reaching it requires robust processes, people, culture, and an operating model, progressing through earlier stages (Collect, Describe, Discover, Predict) toward Advise.
+//    // [Source 1], [Source 2], [Source 4], [Source 5]
+
+//    var response3 = await pipeline.AskAsync("What is the collect stage of data maturity?", o);
+//    Console.WriteLine("\r\n" + response3.Answer);
+//    // The Collect stage is the early data maturity phase that begins when an organization decides to build a data science capability.
+//    // Most effort is devoted to identifying what data exists or is needed and aggregating it-often focusing on collecting internal data (e.g., gathering sales records).
+//    // As the organization matures, the proportion of effort spent on Collect declines but never disappears, since new questions and data sources require ongoing aggregation and preparation.
+//    // [Source 1], [Source 2], [Source 3]
+
+//    var response4 = await pipeline.AskAsync("What are examples of good data science teams?", o);
+//    Console.WriteLine("\r\n" + response4.Answer);
+//}
+
+internal sealed class PromptDump : IPromptObserver
+{
+    public void OnPromptAssembled(IReadOnlyList<ChatMessage> messages)
     {
-        var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
-            ?? throw new InvalidOperationException("Set OPENAI_API_KEY environment variable.");
-
-        var chatModel = Environment.GetEnvironmentVariable("OPENAI_CHAT_MODEL") ?? "gpt-4o-mini";
-        var embeddingModel = Environment.GetEnvironmentVariable("OPENAI_EMBEDDING_MODEL") ?? "text-embedding-3-small";
-        var vectorDimensions = 1536;
-
-        services.AddChatClient(
-            new OpenAI.Chat.ChatClient(chatModel, apiKey).AsIChatClient());
-        services.AddEmbeddingGenerator(
-            new OpenAI.Embeddings.EmbeddingClient(embeddingModel, apiKey).AsIEmbeddingGenerator());
-
-        services.AddRagNet(rag => rag
-            .UsePgVector(connectionString, vectorDimensions)
-            .AddPdfParser());
-
-        Console.WriteLine($"Using OpenAI (chat: {chatModel}, embeddings: {embeddingModel})");
-    }
-    else
-    {
-        var ollamaEndpoint = Environment.GetEnvironmentVariable("OLLAMA_ENDPOINT") ?? "http://localhost:11434/v1";
-        var chatModel = Environment.GetEnvironmentVariable("OLLAMA_CHAT_MODEL") ?? "llama3.2";
-        var embeddingModel = Environment.GetEnvironmentVariable("OLLAMA_EMBEDDING_MODEL") ?? "all-minilm";
-        var vectorDimensions = 384;
-
-        var ollamaOptions = new OpenAIClientOptions { Endpoint = new Uri(ollamaEndpoint) };
-        var ollamaCredential = new ApiKeyCredential("ollama");
-
-        services.AddChatClient(
-            new OpenAI.Chat.ChatClient(chatModel, ollamaCredential, ollamaOptions).AsIChatClient());
-        services.AddEmbeddingGenerator(
-            new OpenAI.Embeddings.EmbeddingClient(embeddingModel, ollamaCredential, ollamaOptions).AsIEmbeddingGenerator());
-
-        services.AddRagNet(rag => rag
-            .UsePgVector(connectionString, vectorDimensions)
-            .AddPdfParser());
-
-        Console.WriteLine($"Using Ollama at {ollamaEndpoint} (chat: {chatModel}, embeddings: {embeddingModel})");
-    }
-
-    // --- Optional: SaaS connector examples ---
-    // Uncomment to ingest from Confluence or Slack instead of local files.
-    //
-    // services.AddConfluenceDataProvider(
-    //     baseUrl:  "https://your-org.atlassian.net",
-    //     email:    "user@your-org.com",
-    //     apiToken: Environment.GetEnvironmentVariable("CONFLUENCE_API_TOKEN")!);
-    //
-    // services.AddSlackDataProvider(
-    //     botToken: Environment.GetEnvironmentVariable("SLACK_BOT_TOKEN")!,
-    //     configure: opts => opts.ChannelId = "C01234ABCDE");
-
-    var serviceProvider = services.BuildServiceProvider();
-
-    // --- Initialize vector store ---
-    var vectorStore = serviceProvider.GetRequiredService<IVectorStore>() as PgVectorStore;
-    if (vectorStore is not null)
-    {
-        await vectorStore.InitializeAsync();
-    }
-
-    // --- Ingest documents ---
-    var pipeline = serviceProvider.GetRequiredService<IRagPipeline>();
-    var documentsPath = Path.Combine(AppContext.BaseDirectory, "documents");
-
-    if (Directory.Exists(documentsPath))
-    {
-        var files = Directory.GetFiles(documentsPath);
-        Console.WriteLine($"\nIngesting {files.Length} documents...");
-
-        foreach (var file in files)
+        foreach (var m in messages)
         {
-            var fileName = Path.GetFileName(file);
-            var contentType = Path.GetExtension(file).ToLowerInvariant() switch
-            {
-                ".md" => "text/markdown",
-                ".txt" => "text/plain",
-                ".pdf" => "application/pdf",
-                ".csv" => "text/csv",
-                ".json" => "application/json",
-                ".html" => "text/html",
-                _ => "text/plain",
-            };
-
-            var metadata = new DocumentMetadata
-            {
-                DocumentId = new DocumentId(fileName),
-                FileName = fileName,
-                ContentType = contentType,
-            };
-
-            using var stream = File.OpenRead(file);
-            var result = await pipeline.IngestAsync(stream, metadata);
-            Console.WriteLine($"  {fileName}: {(result.IsSuccess ? result.Value.ChunksStored : 0)} chunks stored");
+            Console.WriteLine($"[{m.Role}] {m.Text}");
         }
-    }
-
-    // --- Interactive Q&A loop ---
-    Console.WriteLine("\nReady! Ask a question (or 'quit' to exit):\n");
-
-    while (true)
-    {
-        Console.Write("> ");
-        var input = Console.ReadLine();
-
-        if (string.IsNullOrWhiteSpace(input) || input.Equals("quit", StringComparison.OrdinalIgnoreCase))
-        {
-            break;
-        }
-
-        await foreach (var update in pipeline.AskStreamingAsync(input))
-        {
-            if (update.Sources is { Count: > 0 })
-            {
-                Console.WriteLine($"\n[Found {update.Sources.Count} source(s)]");
-            }
-
-            if (update.TextDelta is not null)
-            {
-                Console.Write(update.TextDelta);
-            }
-        }
-
-        Console.WriteLine("\n");
     }
 }
-finally
+
+internal sealed class FileContentProvider : IFileContentProvider
 {
-    Console.WriteLine("Stopping PostgreSQL container...");
-    await postgres.DisposeAsync();
+    public async IAsyncEnumerable<Result<FileEntry, RagError>> GetFilesAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var fileEntry1 = new FileEntry(
+                new EntryId("Azure_Developer_Guide"),
+                "Azure_Developer_Guide_eBook.pdf",
+                static async ct =>
+                {
+                    var stream = File.OpenRead(@"c:\users\stefheyenrath\downloads\Azure_Developer_Guide_eBook.pdf");
+                    return await Task.FromResult(stream);
+                },
+                ETag: "v2"
+            );
+
+        var fileEntry2 = new FileEntry(
+            new EntryId("field-guide-to-data-science"),
+            "2015-field-guide-to-data-science-160211215115.pdf",
+            async ct =>
+            {
+                var stream = File.OpenRead(@"c:\users\stefheyenrath\downloads\2015-field-guide-to-data-science-160211215115.pdf");
+                return await Task.FromResult(stream);
+            },
+            ETag: "v1"
+        );        
+
+        yield return Result<FileEntry, RagError>.Success(fileEntry1);
+        yield return Result<FileEntry, RagError>.Success(fileEntry2);
+    }
+}
+
+internal sealed class MyContentHashStore(bool hasIds) : IContentHashStore
+{
+    public Task<IReadOnlySet<EntryId>> GetAllIdsAsync(ProviderId providerId, CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult((IReadOnlySet<EntryId>)new HashSet<EntryId> { new EntryId("Azure_Developer_Guide"), new EntryId("field-guide-to-data-science") });
+    }
+
+    public Task<string?> GetETagAsync(ProviderId providerId, EntryId entryId, CancellationToken cancellationToken = default)
+    {
+        if (!hasIds)
+        {
+            return Task.FromResult<string?>("v0");
+        }
+
+        if (string.Equals(entryId.Value, "Azure_Developer_Guide", StringComparison.OrdinalIgnoreCase)) {
+            return Task.FromResult<string?>("v2");
+        }
+
+        if (string.Equals(entryId.Value, "field-guide-to-data-science", StringComparison.OrdinalIgnoreCase)) {
+            return Task.FromResult<string?>("v1");
+        }
+
+        throw new NotSupportedException();
+    }
+
+    public Task<string?> GetHashAsync(ProviderId providerId, EntryId entryId, CancellationToken cancellationToken = default)
+    {
+        if (string.Equals(entryId.Value, "Azure_Developer_Guide", StringComparison.OrdinalIgnoreCase))
+        {
+            return Task.FromResult<string?>("hash1");
+        }
+
+        if (string.Equals(entryId.Value, "field-guide-to-data-science", StringComparison.OrdinalIgnoreCase))
+        {
+            return Task.FromResult<string?>("hash2");
+        }
+
+        throw new NotSupportedException();
+    }
+
+    public Task RemoveAsync(ProviderId providerId, EntryId entryId, CancellationToken cancellationToken = default)
+    {
+        throw new NotSupportedException();
+    }
+
+    public Task SetAsync(ProviderId providerId, EntryId entryId, string? etag, string hash, CancellationToken cancellationToken = default)
+    {
+        return Task.CompletedTask;
+    }
 }

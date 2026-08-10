@@ -106,5 +106,7 @@
     <PackageVersion Include="ZeroAlloc.Validation" Version="1.5.3" />
     <PackageVersion Include="ZeroAlloc.Validation.Generator" Version="1.5.3" />
     <PackageVersion Include="ZeroAlloc.ValueObjects" Version="1.7.2" />
+    
+    <PackageVersion Include="Azure.AI.OpenAI" Version="2.9.0-beta.1" />
   </ItemGroup>
 </Project>
