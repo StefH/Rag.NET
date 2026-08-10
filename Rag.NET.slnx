@@ -146,6 +146,7 @@
     <Project Path="tests/Rag.NET.Cli.Tests/Rag.NET.Cli.Tests.csproj" />
   </Folder>
   <Folder Name="/samples/">
+    <Project Path="samples/Rag.NET.Sample.Web/Rag.NET.Sample.Web.csproj" />
     <Project Path="samples/Rag.NET.Sample/Rag.NET.Sample.csproj" />
     <Project Path="samples/Rag.NET.QuickStart/Rag.NET.QuickStart.csproj" />
   </Folder>
