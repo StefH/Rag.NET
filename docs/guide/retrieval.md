@@ -15,7 +15,7 @@ public sealed record RetrievalOptions
 {
     public int TopK                          { get; init; } = 5;
     public double MinScore                   { get; init; } = 0.0;
-    public IDictionary<string, string>? MetadataFilter { get; init; }
+    public IDictionary<string, MetadataValue>? MetadataFilter { get; init; }
     public ISpecification<SearchResult>? Filter { get; init; }
     public bool UseHybridSearch              { get; init; }
     public bool UseLostInTheMiddleReordering { get; init; }
@@ -60,7 +60,7 @@ var results = await pipeline.RetrieveAsync("What are the Q4 targets?", new Retri
     UseMultiQuery                 = true,
     UseReranking                  = true,
     CandidateCount                = 20,
-    MetadataFilter = new Dictionary<string, string>
+    MetadataFilter = new Dictionary<string, MetadataValue>
     {
         ["department"] = "finance",
     },
@@ -90,7 +90,7 @@ public sealed record SearchResult
 
 `Score` semantics depend on the search mode:
 - **Semantic (pure dense):** cosine similarity in `[0, 1]` (pgvector: `1 - cosine_distance`).
-- **Hybrid via `IHybridSearchable`:** the score comes from the backend (Azure AI Search uses its own BM25+vector fusion score, not bounded to `[0, 1]`; Weaviate returns a relative-score-fusion value in `[0, 1]`).
+- **Hybrid via `IHybridSearchable`:** the score comes from the backend (Azure AI Search returns [RRF values](https://learn.microsoft.com/azure/search/hybrid-search-ranking), about `1/60` per fused query; Weaviate returns a relative-score-fusion value in `[0, 1]`).
 - **Hybrid via in-memory BM25 fallback:** Reciprocal Rank Fusion score, typically in `(0, 0.05]`.
 
 ## Semantic search
@@ -121,13 +121,15 @@ var results = await pipeline.RetrieveAsync("ISO 27001 compliance checklist", new
 
 ### How the hybrid path is selected
 
-The pipeline inspects the registered `IVectorStore` at retrieval time:
+The pipeline inspects the registered `IVectorStore` at retrieval time and dispatches to the store's native server-side hybrid query **only when the call configures nothing native fusion cannot express** — a native backend call cannot apply `EnsembleOptions` weights, cannot run a sparse (SPLADE) arm, and would apply `MinScore` to its own fusion-score scale instead of the dense arm's similarity scale:
 
 ```mermaid
 flowchart TD
     Q["UseHybridSearch = true"] --> CHECK{IVectorStore implements<br>IHybridSearchable?}
-    CHECK -- yes --> NATIVE["HybridSearchAsync()<br>backend handles fusion natively<br>e.g. Azure AI Search"]
-    CHECK -- no --> FALLBACK["Dense search + in-memory BM25<br>run concurrently"]
+    CHECK -- yes --> EXPR{"Nothing configured beyond<br>what native can express?<br>(no sparse arm, no EnsembleOptions,<br>MinScore = 0)"}
+    CHECK -- no --> FALLBACK["Dense search + in-memory BM25<br>(+ sparse arm when active)<br>run concurrently"]
+    EXPR -- yes --> NATIVE["HybridSearchAsync()<br>backend handles fusion natively<br>e.g. Azure AI Search, Weaviate"]
+    EXPR -- no --> FALLBACK
     FALLBACK --> RRF["RRF merge<br>Reciprocal Rank Fusion"]
 
     style FALLBACK fill:#e8f4fd,stroke:#4a90d9
@@ -136,10 +138,13 @@ flowchart TD
 
 | Condition | Behaviour |
 |-----------|-----------|
-| `IVectorStore` also implements `IHybridSearchable` | Calls `HybridSearchAsync` — the backend handles fusion natively |
-| `IVectorStore` does not implement `IHybridSearchable` | Dense search and in-memory BM25 run concurrently; results merged via Reciprocal Rank Fusion |
+| Store implements `IHybridSearchable`, **and** no sparse arm would run, **and** `EnsembleOptions` is not supplied, **and** `MinScore` is `0.0` | Calls `HybridSearchAsync` — the backend handles fusion natively in a single call; scores are on the backend's fusion scale |
+| Store implements `IHybridSearchable`, but the call supplies `EnsembleOptions` (even default-valued), a non-zero `MinScore`, or a sparse arm would run | Client-side fusion, so the configured weights, threshold semantics, and sparse arm all apply |
+| Store does not implement `IHybridSearchable` | Dense search and in-memory BM25 (and, when active, sparse) run concurrently; results merged via Reciprocal Rank Fusion |
 
-Azure AI Search and Weaviate implement `IHybridSearchable` and perform server-side BM25+vector fusion. pgvector and Qdrant do not; they fall back to the in-memory BM25 index maintained by `RagPipeline`.
+Azure AI Search and Weaviate implement `IHybridSearchable` and perform server-side BM25+vector fusion. pgvector and Qdrant do not; they fall back to the in-memory BM25 index maintained by `RagPipeline`. The probe is on the registered `IVectorStore` instance itself — a decorator that does not forward `IHybridSearchable` (e.g. `ResilientVectorStore`, `FederatedVectorStore`) keeps the client-side path.
+
+Which path served a query is observable without a debugger: the `ragnet.retrieve` activity carries a `retrieval.hybrid.path` tag (`native` or `client`), and the native path logs a debug event `ensemble_native_hybrid` naming the store. The two paths return scores on different scales (the backend's fusion scale vs. client-side RRF values around `0.016`), so telling them apart matters when reading scores.
 
 ### In-memory BM25 index
 
@@ -159,7 +164,7 @@ RRF scores are not cosine similarities. `MinScore` filtering is applied by each 
 
 A store whose own `IVectorStore.SearchAsync` scores are on a non-similarity scale says so by implementing `IScoreScaleAware` and returning `ScoreScale.OpaqueRanking`; `FederatedVectorStore`, whose merged scores are RRF sums, is the one store that does. Consumers that would otherwise apply a fixed cut-off to those scores skip the threshold and take results in rank order instead — today that is persistent conversation memory's `PersistentMemoryOptions.MinScore`. Every other store is treated as similarity-scaled, so nothing on the retrieval path above changes. See [vector stores](vector-stores.md#score-scale-iscorescaleaware).
 
-See [benchmarks](benchmarks.md#hybrid-search-bm25-fallback) for throughput data on the BM25+RRF path.
+See [benchmarks](../reference/benchmarks.md#hybrid-search-bm25-fallback) for throughput data on the BM25+RRF path.
 
 ## Sparse retrieval (SPLADE)
 
@@ -427,11 +432,13 @@ services.AddRagNet(b => b
     }));
 ```
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `MaxDepth` | `3` | Maximum number of sufficiency-check iterations |
-| `SubQueryCount` | `3` | Maximum sub-queries generated per iteration |
-| `SufficiencyPrompt` | `null` | Custom prompt; `null` uses the built-in default |
+| Option | Default | Constraint | Description |
+|--------|---------|------------|-------------|
+| `MaxDepth` | `3` | Must be greater than 0 | Maximum number of sufficiency-check iterations. Zero or negative would skip the loop entirely — plain retrieval at decorator prices. |
+| `SubQueryCount` | `3` | Must be greater than 0 | Maximum sub-queries generated per iteration. Zero would burn one LLM call per iteration retrieving nothing; negative would throw mid-retrieval. |
+| `SufficiencyPrompt` | `null` | — | Custom prompt; `null` uses the built-in default |
+
+`UseDeepResearch` validates these at registration and throws `ArgumentException` from the configuring line — a bad value never reaches retrieval.
 
 ### How it works
 
@@ -491,10 +498,12 @@ services.AddRagNet(b => b
     }));
 ```
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `TopK` | `1` | Maximum number of distinct tag keys to inject |
-| `MinScore` | `0.82` | Minimum cosine similarity for a tag to be injected |
+| Option | Default | Constraint | Description |
+|--------|---------|------------|-------------|
+| `TopK` | `1` | Must be greater than 0 | Maximum number of distinct tag keys to inject. Zero would scan the index and then inject nothing — tag retrieval silently failing open. |
+| `MinScore` | `0.82` | Must be between −1.0 and 1.0, and finite | Minimum cosine similarity for a tag to be injected. Above 1 no similarity can ever qualify — the same silent fail-open. |
+
+`UseTagRetrieval` validates these at registration and throws `ArgumentException` from the configuring line.
 
 ### How it works
 
@@ -505,7 +514,7 @@ await pipeline.IngestAsync(stream, new DocumentMetadata
 {
     DocumentId = new DocumentId("report-q4"),
     FileName   = "report-q4.pdf",
-    Tags       = new Dictionary<string, string>
+    Tags       = new Dictionary<string, MetadataValue>
     {
         ["department"] = "finance",
         ["year"]       = "2024",
@@ -564,10 +573,12 @@ services.AddRagNet(rag => rag.UseTimeWeighting(new TimeWeightedOptions
 
 ### `TimeWeightedOptions`
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `DecayRate` | `0.01` | λ in `score × e^(−λ × age_hours)`. Default halves relevance at ~69 hours (~3 days). |
-| `FallbackMetadataKeys` | `["updated_at", "published_at", "lastmod", "received_at"]` | Connector-specific metadata keys to try, in order, after both reserved timestamp keys have been checked and missed. First parseable ISO 8601 value wins. |
+| Option | Default | Constraint | Description |
+|--------|---------|------------|-------------|
+| `DecayRate` | `0.01` | Must be zero or positive, and finite | λ in `score × e^(−λ × age_hours)`. Default halves relevance at ~69 hours (~3 days). Zero means no decay; a negative rate would *boost* the oldest content exponentially — recency inverted. |
+| `FallbackMetadataKeys` | `["updated_at", "published_at", "lastmod", "received_at"]` | — | Connector-specific metadata keys to try, in order, after both reserved timestamp keys have been checked and missed. First parseable ISO 8601 value wins. |
+
+`UseTimeWeighting` validates `DecayRate` at registration and throws `ArgumentException` from the configuring line.
 
 ### Resolution order
 
@@ -711,9 +722,10 @@ services.AddRagNet(b => b
         o.MaxLength = 512;
     }));
 
-// Option 2: Custom implementation (e.g., Cohere, Jina)
+// Option 2: A custom IReranker implementation — Rag.NET.Reranking.Cohere's CohereReranker
+// shown here; write your own IReranker for other providers (e.g. Jina)
 services.AddRagNet(b => b
-    .UseReranking<MyCohereReranker>());
+    .UseReranking<CohereReranker>());
 ```
 
 ### How it works
@@ -768,24 +780,25 @@ Download ONNX models from [Hugging Face](https://huggingface.co) and point `Mode
 
 ## Metadata filtering
 
-`MetadataFilter` is a dictionary of key-value pairs that must all match a chunk's `Metadata` for the chunk to be returned. This is an AND filter — all entries must match.
+`MetadataFilter` is a dictionary of key-value pairs that must all match a chunk's `Metadata` for the chunk to be returned. This is an AND filter — all entries must match. Values are typed (`MetadataValue`), and matching is kind-sensitive: a filter value written as the number `3` runs a numeric comparison in the store and does not match a stored string `"3"` (nor the reverse).
 
 ```csharp
 var results = await pipeline.RetrieveAsync("capital expenditure targets", new RetrievalOptions
 {
     TopK           = 5,
-    MetadataFilter = new Dictionary<string, string>
+    MetadataFilter = new Dictionary<string, MetadataValue>
     {
-        ["department"] = "finance",
-        ["year"]       = "2024",
+        ["department"] = "finance", // string match
+        ["page"]       = 3,         // numeric match against the reserved page metadata
     },
 });
 ```
 
-Metadata keys come from two sources:
+Metadata keys come from three sources:
 
 1. **`DocumentMetadata.Tags`** — set at ingestion time on the `DocumentMetadata` object.
 2. **Heading breadcrumbs** — injected automatically by the Markdown and HTML parsers.
+3. **Page attribution** — the reserved `page`/`page_end` number pair the chunking strategies write for paginated sources (see [Ingestion — Page attribution](ingestion.md#page-attribution)).
 
 Available heading metadata keys:
 
@@ -799,7 +812,7 @@ Available heading metadata keys:
 // Filter to chunks from a specific Markdown section
 var results = await pipeline.RetrieveAsync("query", new RetrievalOptions
 {
-    MetadataFilter = new Dictionary<string, string>
+    MetadataFilter = new Dictionary<string, MetadataValue>
     {
         ["heading_breadcrumb"] = "Chapter 1 > Section 2",
     },
@@ -866,7 +879,7 @@ public sealed class RagOptions
     public bool UseLostInTheMiddleReordering { get; set; }
     public bool UseRedundancyFilter          { get; set; }
     public float RedundancyThreshold         { get; set; } = 0.95f;
-    public IDictionary<string, string>? MetadataFilter  { get; set; }
+    public IDictionary<string, MetadataValue>? MetadataFilter  { get; set; }
     public string? SystemPrompt              { get; set; }
     public float? Temperature                { get; set; }
     public IList<ChatMessage>? ConversationHistory { get; set; }
@@ -888,6 +901,33 @@ var response = await pipeline.AskAsync("What is our refund policy?", new RagOpti
 });
 ```
 
+### What the model actually receives
+
+`ChatAnswerEngine.BuildMessagesAsync` builds the context block by joining the retrieved sources with `"\n\n---\n\n"`, labelling each one `[Source N]`, and sends the whole block as the final **user** message alongside the question:
+
+```
+Context:
+[Source 1]
+<chunk text>
+
+---
+
+[Source 2]
+<chunk text>
+
+Question: <the query>
+```
+
+This shape does not change based on `SystemPrompt`. **A custom system prompt does not suppress citation behaviour** — the `[Source N]` labels are delimiters the model sees regardless of what the system prompt says, and a model that notices them will often cite them unprompted. If a caller does not want citations, they must say so explicitly in their prompt (e.g. "Do not reference source numbers in your answer").
+
+This also matters because of what a custom prompt *removes*. When `SystemPrompt` is left `null`, the engine falls back to a default that ends with an explicit citation instruction:
+
+```
+Answer the user's question based only on the provided context. If the context doesn't contain enough information, say so. Cite which sources you used.
+```
+
+Setting a custom `SystemPrompt` replaces this string entirely — including its "Cite which sources you used" instruction — while the `[Source N]` labels in the context block stay exactly as they were. The labels, not the default prompt, are what drive citation-like behaviour, and they are unaffected by whichever `SystemPrompt` value is in effect.
+
 ### Conversation history
 
 Pass prior turns to maintain a multi-turn conversation. Messages are inserted between the system prompt and the final user+context message:
@@ -907,6 +947,80 @@ var response = await pipeline.AskAsync("Can you give an example?", new RagOption
 });
 ```
 
+**Ordering:** if `ConversationHistory` begins with one or more `ChatRole.System` messages — for example a host-injected prompt-hardening prefix — those are placed *before* `SystemPrompt` (or the default prompt), not after it. This is deliberate: a host-level prompt must not be shadowed by a per-request one. The remaining history (user/assistant turns) follows `SystemPrompt`, then the `Context:`/`Question:` message. So with a leading system message in history, the full order is:
+
+1. History's leading system message(s)
+2. `SystemPrompt` (or the default)
+3. Remaining history (user/assistant turns)
+4. The `Context:`/`Question:` user message
+
+This ordering is pinned by tests and should be treated as a contract, not an implementation detail.
+
+### Observing the assembled prompt
+
+`IPromptObserver` (in `Rag.NET.Abstractions`) is an optional seam that `ChatAnswerEngine` calls with the complete, ordered message list — system prompt(s), conversation history, and the `Context:`/`Question:` user message — immediately before sending it to the `IChatClient`:
+
+```csharp
+public interface IPromptObserver
+{
+    void OnPromptAssembled(IReadOnlyList<ChatMessage> messages);
+}
+```
+
+`ChatAnswerEngine.CreateFromServices` resolves it as an optional service, so registering an implementation is enough to turn it on — with none registered, nothing about answer generation changes:
+
+```csharp
+using Microsoft.Extensions.AI;
+using Rag.NET.Abstractions;
+
+public sealed class ConsolePromptObserver : IPromptObserver
+{
+    public void OnPromptAssembled(IReadOnlyList<ChatMessage> messages)
+    {
+        foreach (var message in messages)
+        {
+            Console.WriteLine($"{message.Role}: {message.Text}");
+        }
+    }
+}
+
+services.AddSingleton<IPromptObserver, ConsolePromptObserver>();
+```
+
+With this registered, every call to `AskAsync` or `AskStreamingAsync` prints exactly what the model was given — the resolved system prompt, any conversation history, and the `[Source N]`-labelled context block described above. This is the fastest way to answer "did my `SystemPrompt` actually reach the model, and what else did it see?" without reading source.
+
+Implementations must never throw — the call happens on the path to the model, so an exception there would turn a diagnostic into a failed answer.
+
+> **Built-in observer:** the `Rag.NET.Diagnostics` package's `AddRagDiagnostics()` registers its own `IPromptObserver` that renders assembled prompts into its trace store instead of the console — see that package's documentation for the full pipeline-debugger feature set.
+
+### When the answer says it cannot find something
+
+An answer along the lines of *"there isn't enough information in the provided context"* has two quite different causes, and `RagResponse` already carries everything needed to tell them apart. `Sources` is the full retrieved set — every chunk's complete `Text`, with the `Score` it was retrieved at. Nothing is truncated or summarised:
+
+```csharp
+var response = await pipeline.AskAsync("What is my address?", options);
+
+Console.WriteLine(response.Answer);
+Console.WriteLine($"--- {response.Sources.Count} source(s) ---");
+foreach (var source in response.Sources)
+{
+    Console.WriteLine($"[{source.Score:F3}] {source.Chunk.DocumentId}#{source.Chunk.ChunkIndex}");
+    Console.WriteLine(source.CompressedText ?? source.Chunk.Text);
+}
+```
+
+Read the output before changing anything:
+
+- **`Sources` is empty.** Retrieval returned nothing, or `MinScore` filtered everything out. The model was asked a question with no context at all, and correctly said so. Lower `MinScore`, raise `TopK`, or check the documents were ingested at all.
+- **`Sources` is full, and the text you expected is not in it.** Retrieval ran but ranked the wrong chunks highest — a *ranking* problem, not a filtering one. Raising `TopK` may be enough; otherwise this is what hybrid search, reranking, and query expansion exist for. Short, pronoun-heavy queries are the usual trigger: `"What is my address?"` shares very little semantic surface with a chunk containing a literal street address, so a dense-only search can rank it well below chunks that merely *discuss* addresses.
+- **`Sources` is full and the text you expected *is* in it.** Retrieval did its job and the model did not use what it was given. That is a prompting or model-capability question, and `IPromptObserver` above will show you exactly what it received.
+
+`Sources` reflects the post-compression list when contextual compression is enabled, so compare `CompressedText` against `Chunk.Text` if you suspect the compressor dropped the very detail you were asking about.
+
+> **`MinScore` is an absolute floor, and it is easy to set too high.** It is a raw similarity from the embedding model, not a percentage or a calibrated confidence, and the value that means "clearly relevant" differs per model. In a measured example (`nomic-embed-text`, `tests/Rag.NET.E2ETests/AddressRetrievalReproTests.cs`) a chunk reading `Address: Keizersgracht 123, 1015 CJ Amsterdam` scored **0.525** against the query *"What is my address?"* — clearing a `MinScore` of `0.5` by 0.025 — while a decoy reading *"delivery addresses cannot be changed"* scored **0.640** and outranked it. Start at `0.0` and raise it only once you have looked at real scores for your own model and corpus.
+
+> **`MinScore` means something different under hybrid search.** With `UseHybridSearch = true`, a non-zero `MinScore` forces the client-side fusion path (a native backend would apply it to its own fusion-score scale — on Azure AI Search that scale is RRF values around `0.016`, so a similarity-tuned threshold would silently empty the results). On that client-side path, `EnsembleBehavior` passes `MinScore` to the dense and sparse arms against their own score scales; BM25 hits bypass it entirely, so a chunk below the floor can still be returned if it matches a query keyword. The results are then re-scored by reciprocal rank fusion, so the `Score` you get back is an RRF value — on the order of `0.016`, not a similarity — and comparing it against your own `MinScore` will not make sense. Treat `Score` as ordinal whenever hybrid search is on; see `IScoreScaleAware` and `ScoreScale.OpaqueRanking`.
+
 ## SQLite Persistence
 
 By default, `InMemoryBm25Index` and `InMemoryParentChunkStore` are process-scoped and lost on restart. For large corpora where re-ingestion is expensive, SQLite persistence writes both stores through to a local SQLite file and reloads them on startup.
@@ -915,10 +1029,11 @@ By default, `InMemoryBm25Index` and `InMemoryParentChunkStore` are process-scope
 
 ```csharp
 services.AddRagNet(b => b
-    .UseHybridSearch()              // optional — enables BM25 index
     .UseParentDocumentRetrieval()   // optional — enables parent chunk store
     .UseSqlitePersistence("rag-data.db", collectionName: "my-docs"));
 ```
+
+`AddRagNet` always registers a BM25 index (`InMemoryBm25Index` by default, `SqliteBm25Index` once `UseSqlitePersistence` runs) — `UseHybridSearch` is not a registration-time call but the per-request `RetrievalOptions.UseHybridSearch = true` (or `RagOptions.UseHybridSearch = true`) described above; set it on the call, not the builder.
 
 `collectionName` is the stale-data guard: if the registered name does not match what is stored in the SQLite file (e.g., after switching to a new vector store), all persisted rows are wiped before loading. Omit `collectionName` to skip this check.
 

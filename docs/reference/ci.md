@@ -214,6 +214,36 @@ RAGNET_BEIR_LONG_RUNS=1 dotnet test tests/Rag.NET.Benchmarks.Quality.Integration
   --filter "DisplayName~BeirRealChunkingTests&DisplayName~arguana"
 ```
 
+**`RAGNET_BEIR_RUN_INDEX` — repeat runs, for the cost measurement only.** Phase 5.1 publishes no
+cost figure from a single run: `CostReproducibility` compares repeats and refuses a figure whose
+runs disagree beyond its bar. Each entrant therefore has to be measured more than once, and the
+variable says which repeat this invocation is writing, so run 2's timings sidecar lands beside
+run 1's instead of overwriting it. It defaults to `1`, and **throws** on anything that is not a
+positive integer rather than falling back — a silent fallback would overwrite run 1 with what the
+operator meant to be run 2, and the gate would then compare a run against itself and report
+perfect agreement.
+
+`nightly.yml` does not set it, deliberately: one run per night is a run the gate cannot judge, and
+a nightly that produced ungated figures would be worse than one that produces none. This is a
+developer procedure, run twice by hand on one machine in one session, which is what the design's
+comparability rule requires anyway. To measure both .NET entrants twice:
+
+```bash
+for i in 1 2; do
+  RAGNET_BEIR_LONG_RUNS=1 RAGNET_BEIR_RUN_INDEX=$i \
+    dotnet test tests/Rag.NET.Benchmarks.Quality.IntegrationTests --no-build \
+    --filter "FullyQualifiedName~BeirComparisonControlTests"
+done
+```
+
+The Python entrants take the same index as `--run-index`:
+
+```bash
+for i in 1 2; do
+  uv run python run_entrant.py scifact langchain --run-index $i
+done
+```
+
 **The reranked ablation cells additionally need the cross-encoder, which the nightly deliberately
 does not provision.** It used to: the job fetched, SHA-256-checked and cached the ~87 MB
 `cross-encoder/ms-marco-MiniLM-L6-v2` export on every cold run — and both genuine runs on the
@@ -343,8 +373,8 @@ selection with a hardcoded list passed it. A guard that a comment can satisfy is
 
 `ci.yml` has a second gating job besides the test matrix: `pack-validate`, on `ubuntu-latest`.
 Every run it derives the version from git history (see [Versioning](#versioning-gitversion-and-the-release-tooling)
-below), packs the 70 shippable packages with it (`dotnet pack Rag.NET.slnx -c Release -o
-artifacts/packages -p:Version="$PACKAGE_VERSION"` — 70 `.nupkg` plus 70 `.snupkg`), validates
+below), packs the 69 shippable packages with it (`dotnet pack Rag.NET.slnx -c Release -o
+artifacts/packages -p:Version="$PACKAGE_VERSION"` — 69 `.nupkg` plus 69 `.snupkg`), validates
 them with `tests/Rag.NET.PackageValidation.Tests` — the only guard there is, because `dotnet
 pack` enforces almost none of its own metadata — and then **pushes every package to a local
 directory feed, twice, asserting per file that each one arrived**.
@@ -367,7 +397,7 @@ Three things the rehearsal measured (2026-08-03), each pinned by a workflow asse
   changes that behaviour the run fails and the rehearsal widens to cover symbol packages.
 
 `--skip-duplicate` is the deliberate duplicate policy for the real push: nuget.org never forgets
-a published version, so a push that dies partway through 70 packages must be re-runnable, and
+a published version, so a push that dies partway through 69 packages must be re-runnable, and
 without the flag the retry fails on the first package that already arrived. Idempotent is the
 only retry-safe shape against an append-only feed.
 
@@ -404,7 +434,7 @@ a documented procedure, and guarded so it cannot be deleted or drift silently.
 ### What the rehearsal cannot prove — the 6.3 residual
 
 Pushing to a local feed is not pushing to nuget.org. **Exercised for real exactly once, on
-release day:** authentication, API-key scoping, package-ID availability (none of the 70 IDs is
+release day:** authentication, API-key scoping, package-ID availability (none of the 69 IDs is
 reserved until then — an exposure the design accepts and records), the service's own validation,
 the real 409-and-skip behaviour of `--skip-duplicate`, and `.snupkg` symbol delivery — which at
 nuget.org rides automatically on each `.nupkg` push and cannot be rehearsed against a directory
@@ -499,21 +529,22 @@ bump. It was validated with `renovate-config-validator` on 2026-08-03 (the origi
 re-validated 2026-08-04 after the `packageRules` addition — both runs reported `Config validated
 successfully`.
 
-**It is inert until the Renovate GitHub App is enabled on the repository** —
-Renovate is a hosted service reading this file, not a workflow this repository runs, so no job
-here can exercise it; recorded rather than assumed working. **Enabling it is the repository
-owner's action, taken in a browser, and cannot be done from a branch or a workflow file**: install
-the [Renovate GitHub App](https://github.com/apps/renovate), choose **Configure**, and select this
-repository (or grant it organization-wide access, the owner's call). There is no CLI or API
-equivalent to fence here — installing a GitHub App is not a command this repository can script or
-rehearse, unlike every other gate on this page.
+**Correction, 2026-08-08 (Phase 4.5's documentation pass): the app is enabled and opening PRs.**
+This section previously read "inert until the Renovate GitHub App is enabled" — true when Phase
+4.8 wrote it, false by the time this page was next read. Evidence: five `renovate/*` branches live
+on the repository as of this correction (`box.v2-10.x`, `major-ml-dotnet-monorepo`,
+`pinecone.client-4.x`, `wiremock.net-2.x`, `zeroalloc.mediator.generator-5.x`), and `gh pr list`
+shows Renovate PRs opening since 2026-08-05, several already merged — including a major-version
+bump (`zeroalloc.valueobjects` to v2, PR #54, merged into `main`). Enabling the app is still the
+repository owner's action, taken in a browser, with no CLI or API equivalent to fence — that half
+of this section stands unchanged; only the "unexercised" claim was stale.
 
-**Two claims, and Phase 4.8 records them separately rather than letting one imply the other.**
-*Dependency pinning is delivered and provable*: the phase's nuspec diff came back empty over 156
-external dependency lines, so no published floor moved. *Upgrade automation is configured and
-unexercised*: this file has never proposed a pull request, because the app has never been
-enabled — `config:recommended` and the `packageRules` addition are validated syntax, not observed
-behaviour. Only the first claim is demonstrated by any work in this repository to date.
+**Two claims, and Phase 4.8 recorded them separately rather than letting one imply the other —
+both now demonstrated.** *Dependency pinning is delivered and provable*: the phase's nuspec diff
+came back empty over 156 external dependency lines, so no published floor moved. *Upgrade
+automation is configured and exercised*: the app has opened and merged real PRs against this
+repository, both patch/minor batches and standalone majors, matching the `packageRules` shape
+Phase 4.8 configured.
 
 ## Running the tiers locally
 

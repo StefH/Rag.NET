@@ -22,14 +22,9 @@ public sealed class SearchOptions
     /// <summary>
     /// Restricts results to chunks whose metadata matches every key/value pair exactly. Exact
     /// matching semantics (case sensitivity, AND vs. OR) are up to each store's implementation.
-    /// <see langword="null"/> or an empty dictionary means no filtering.
+    /// <see langword="null"/> or an empty dictionary means no filtering. Matching is typed:
+    /// a filter value of <c>3</c> (a <see cref="MetadataValue"/> number) matches metadata
+    /// written as a number, not the string <c>"3"</c>.
     /// </summary>
-    public IDictionary<string, string>? MetadataFilter { get; set; }
-
-    /// <summary>
-    /// Requests dense+sparse hybrid search instead of dense-only. Only meaningful for a store
-    /// that also implements <see cref="Rag.NET.Abstractions.IHybridSearchable"/>; a plain
-    /// <see cref="Rag.NET.Abstractions.IVectorStore"/> ignores it.
-    /// </summary>
-    public bool UseHybridSearch { get; set; }
+    public IDictionary<string, MetadataValue>? MetadataFilter { get; set; }
 }

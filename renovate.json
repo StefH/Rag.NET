@@ -2,17 +2,44 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended",
-    ":semanticCommits"
+    ":semanticCommits",
+    "github>ZeroAlloc-Net/.github"
   ],
   "labels": [
     "dependencies"
   ],
+  "description": [
+    "Every update gets its own PR, and nothing is raised until the release has been out for",
+    "three days.",
+    "",
+    "This replaces a rule that batched patch and minor bumps into one weekly 'non-major",
+    "dependencies' PR. The premise — that low-risk updates are cheaper to review together —",
+    "held only while they stayed low-risk. PR #98 carried sixteen packages, one of which took",
+    "Meziantou.Analyzer from 3.0.52 to 3.0.141: eighty-nine releases of accumulated new rules,",
+    "surfacing 86 MA0002 and MA0074 errors across a 146-project solution. None of the other",
+    "fifteen could land until that one was migrated, and the migration is a day's work rather",
+    "than a review. Batching converted fifteen mergeable updates into one blocked PR.",
+    "",
+    "One PR per package makes that failure mode impossible: an analyzer migration blocks only",
+    "the analyzer, and the other fifteen merge the day they are raised. It costs more PRs,",
+    "which is the point — the cost lands on the update that earned it.",
+    "",
+    "minimumReleaseAge of three days replaces the weekly schedule as the thing that keeps",
+    "churn down. A weekly batch delayed everything by up to seven days to avoid same-day",
+    "regressions; a three-day cool-off buys the same protection per package, and a package",
+    "yanked or patched within three days never generates a PR at all."
+  ],
+  "minimumReleaseAge": "3 days",
   "packageRules": [
     {
-      "description": "Patch and minor bumps carry the least risk, so they are batched into one PR a week instead of one PR each. Majors get no rule here — config:recommended's default (ungrouped, unscheduled) is exactly 'one PR per major, as soon as it's available', which is what breakage-prone majors need.",
-      "matchUpdateTypes": ["patch", "minor"],
-      "groupName": "non-major dependencies",
-      "schedule": ["before 6am on monday"]
+      "description": "Pinecone.Client is pinned below 4.x because v4 cannot be tested and will never be fixed. v4 retires CreateIndexRequestMetric for MetricType — a three-line rename that compiles — but its Index model marks vector_type as a required JSON property and no published ghcr.io/pinecone-io/pinecone-local image sends it; verified against :latest and the newest tag v1.0.0.rc0 (v0.6.0 and v0.7.0 are the only others, all 17 months old), where all 12 container-backed tests fail identically. This is upstream's own known bug, pinecone-io/pinecone-dotnet-client issue #54, and that repository was ARCHIVED by its owner on 2026-07-03 — read-only, issue still open, no fix coming and no migration guidance published. 3.1.0 works and is fully tested, so it stays. Do not lift this pin expecting a patch release; the wider question is what replaces an abandoned SDK, and that needs a decision rather than a version bump.",
+      "matchPackageNames": ["Pinecone.Client"],
+      "allowedVersions": "<4.0.0"
+    },
+    {
+      "description": "Microsoft.ML.Tokenizers and .Data.Cl100kBase are held below 2.x because v2 cannot be taken without widening every published package's dependency contract. Nothing fails to compile — the build fails on NU1903, a known high-severity vulnerability in Microsoft.Bcl.Memory 9.0.4. Tokenizers 2.0.0's own net8.0 group depends only on Google.Protobuf and is clean; the vulnerable chain arrives through Data.Cl100kBase, which ships netstandard2.0 ONLY and in 2.0.0 flattens Tokenizers' netstandard2.0 closure into its own dependencies, so net10.0 consumers inherit what the net8.0 asset would have avoided. Overriding a transitive needs CentralPackageTransitivePinningEnabled (a direct PackageReference is not available: the three projects referencing Cl100kBase do not use Bcl.Memory in code, so NU1510 rejects it). Enabling it works and was measured — but it promotes pinned transitives into packages' declared nuspec dependencies, which broke DependencyClosureTests.MergedPackagesDeclareOnlyWhatTheirSourcesDeclared: Rag.NET.Parsers.Office began declaring Microsoft.Extensions.AI.Abstractions, which none of its source packages declared. That guard exists to stop consumers silently paying for dependencies, and a tokenizer bump does not justify widening it across 69 packages. Revisit when Data.Cl100kBase ships a net8.0 asset, or when its netstandard2.0 closure no longer carries a vulnerable Bcl.Memory.",
+      "matchPackageNames": ["Microsoft.ML.Tokenizers", "Microsoft.ML.Tokenizers.Data.Cl100kBase"],
+      "allowedVersions": "<2.0.0"
     },
     {
       "description": "Microsoft.Graph and Microsoft.Kiota.Abstractions must move together: Graph pins a Kiota major internally, so bumping Graph alone produces a PR that cannot restore. Renovate's first Graph v6 PR (#26) failed exactly this way with NU1605 on every project — Graph 6.2.0 wants Kiota >= 2.0.0 while the repository pinned 1.22.0.",

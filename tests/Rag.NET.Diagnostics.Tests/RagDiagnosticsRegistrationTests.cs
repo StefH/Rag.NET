@@ -48,7 +48,7 @@ public sealed class RagDiagnosticsRegistrationTests
         // And in the order they were registered: a guard chain is applied in sequence, so decoration
         // reordering it would change what the pipeline does.
         string[] expected = ["first", "second"];
-        Assert.Equal(expected, calls);
+        Assert.Equal(expected, calls, StringComparer.Ordinal);
     }
 
     [Fact]
@@ -194,7 +194,7 @@ public sealed class RagDiagnosticsRegistrationTests
 
     private sealed class PassThroughChunkSanitiser : IChunkSanitiser
     {
-        public string Sanitise(string text, IReadOnlyDictionary<string, string> metadata) => text;
+        public string Sanitise(string text, IReadOnlyDictionary<string, MetadataValue> metadata) => text;
     }
 
     private sealed class PassThroughQuerySanitiser : IQuerySanitiser

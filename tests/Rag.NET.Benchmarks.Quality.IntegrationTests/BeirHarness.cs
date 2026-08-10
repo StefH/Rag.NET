@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using Microsoft.Extensions.AI;
 using Rag.NET.Benchmarks.Quality;
 using Rag.NET.Embeddings.Onnx;
@@ -89,6 +90,49 @@ public static class BeirHarness
     {
         cacheDirectory = BeirDatasetCache.ResolveCacheDirectoryFromEnvironment() ?? string.Empty;
         return cacheDirectory.Length > 0;
+    }
+
+    /// <summary>The environment variable naming which repeat run this invocation is.</summary>
+    public const string RunIndexVariable = "RAGNET_BEIR_RUN_INDEX";
+
+    /// <summary>
+    /// Which repeat run this invocation writes, 1-based; <c>1</c> unless
+    /// <see cref="RunIndexVariable"/> says otherwise.
+    /// <para>
+    /// <b>Without this the .NET rows could not be reproducibility-checked at all.</b> No cost
+    /// figure may be published from a single run — <see cref="CostReproducibility"/> compares
+    /// repeats — but a test that always wrote run 1 would overwrite its own previous sidecar, so
+    /// the gate would have had nothing to compare and would have applied to the Python rows only.
+    /// A guard that covers half the data reads as a guard; this repository has shipped that shape
+    /// before, so the variable exists to make the .NET side feedable rather than exempt.
+    /// </para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// The variable is set to something that is not a positive integer. Falling back to 1 would
+    /// silently overwrite run 1 with what the operator meant to be run 2, and the gate would then
+    /// compare a run against itself and report perfect reproducibility.
+    /// </exception>
+    public static int RunIndex
+    {
+        get
+        {
+            var raw = Environment.GetEnvironmentVariable(RunIndexVariable);
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return 1;
+            }
+
+            if (!int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var index)
+                || index < 1)
+            {
+                throw new InvalidOperationException(
+                    $"{RunIndexVariable} is '{raw}', which is not a positive integer. Defaulting " +
+                    "to 1 would overwrite the previous run's sidecar, and CostReproducibility " +
+                    "would then compare a run against itself and report perfect agreement.");
+            }
+
+            return index;
+        }
     }
 
     /// <summary>Reports whether the model, vocab and dataset cache are all present.</summary>
@@ -249,7 +293,7 @@ public static class BeirHarness
 
         using var store = new InMemoryVectorStore();
         await IndexAsync(generator, embeddings, store, units, cancellationToken);
-        var (runs, pooledQueries) = await RetrieveAsync(
+        var (runs, pooledQueries, _) = await RetrieveAsync(
             row, generator, embeddings, store, JudgedQueries(dataset), descriptor, maxPerDocument,
             cancellationToken);
 
@@ -268,7 +312,9 @@ public static class BeirHarness
     /// <summary>
     /// Embeds and indexes <paramref name="units"/>, retrieves for every judged query with
     /// <paramref name="row"/>, and returns the <b>scored</b> document rankings instead of scoring
-    /// them — the shape <see cref="TrecRunFile.Write"/> takes.
+    /// them — the shape <see cref="TrecRunFile.Write"/> takes — with the entrant's self-measured
+    /// timings: indexing wall-clock around <see cref="IndexAsync"/> only, one latency per query
+    /// around the row's retrieval only.
     /// </summary>
     /// <param name="descriptor">The dataset, for its retrieval protocol.</param>
     /// <param name="dataset">The loaded corpus, queries and qrels.</param>
@@ -277,7 +323,7 @@ public static class BeirHarness
     /// <param name="generator">The embedder.</param>
     /// <param name="embeddings">The vector cache; every embed call goes through it.</param>
     /// <param name="cancellationToken">Cancels the run.</param>
-    /// <returns>Rankings by query id, best first, each document with its pooled score.</returns>
+    /// <returns>The rankings with the timings measured while producing them.</returns>
     /// <remarks>
     /// Exists for the library comparison's control row (<see cref="BeirComparisonControlTests"/>),
     /// whose metric must come from a run file read back from disk rather than from these rankings
@@ -286,16 +332,31 @@ public static class BeirHarness
     /// the rankings this returns are the rankings the parity figures were measured on,
     /// self-exclusion and tie-breaking included. A control retrieving through a second copy of the
     /// path would measure the copy.
+    /// <para>
+    /// The indexing span brackets embed-through-cache and store <b>only</b> — the same operations
+    /// the Python harness brackets as <c>entrant.build</c>. Dataset loading and unit preparation
+    /// stay outside; under the parity protocol unit preparation is a projection that allocates one
+    /// <see cref="TextChunk"/> per document and nothing else.
+    /// </para>
+    /// <para>
+    /// <b>Every vector the run will need is prefetched into memory before either span starts</b>
+    /// (<see cref="EmbeddingCache.Prefetch"/>) — unit texts and judged query texts both, since
+    /// query embedding also goes through the cache, inside the retrieval span. The indexing figure
+    /// is therefore <b>not "the cost of indexing"</b>: it is the library building an index from
+    /// vectors it already has, with embedding and its disk I/O excluded by construction. With one
+    /// cache-file read per text inside the span, identical runs differed by up to 23x on OS
+    /// page-cache state alone — a figure about run order, not about any entrant. A cold cache
+    /// fails loudly in the prefetch instead of being silently paid for here.
+    /// </para>
     /// </remarks>
-    public static async Task<IReadOnlyDictionary<string, IReadOnlyList<ScoredDocument>>>
-        RetrieveScoredRunsAsync(
-            BeirDatasetDescriptor descriptor,
-            BeirDataset dataset,
-            IReadOnlyList<TextChunk> units,
-            AblationRow row,
-            OnnxEmbeddingGenerator generator,
-            EmbeddingCache embeddings,
-            CancellationToken cancellationToken)
+    public static async Task<TimedScoredRuns> RetrieveScoredRunsAsync(
+        BeirDatasetDescriptor descriptor,
+        BeirDataset dataset,
+        IReadOnlyList<TextChunk> units,
+        AblationRow row,
+        OnnxEmbeddingGenerator generator,
+        EmbeddingCache embeddings,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(descriptor);
         ArgumentNullException.ThrowIfNull(dataset);
@@ -304,14 +365,41 @@ public static class BeirHarness
         ArgumentNullException.ThrowIfNull(embeddings);
 
         var (maxPerDocument, _) = SummariseUnits(units);
+        var judged = JudgedQueries(dataset);
+        PrefetchEveryVectorTheRunWillNeed(embeddings, units, judged);
 
         using var store = new InMemoryVectorStore();
+        var indexingStartedAt = Stopwatch.GetTimestamp();
         await IndexAsync(generator, embeddings, store, units, cancellationToken);
-        var (runs, _) = await RetrieveAsync(
-            row, generator, embeddings, store, JudgedQueries(dataset), descriptor, maxPerDocument,
+        var indexingSeconds = Stopwatch.GetElapsedTime(indexingStartedAt).TotalSeconds;
+        var (runs, _, latencies) = await RetrieveAsync(
+            row, generator, embeddings, store, judged, descriptor, maxPerDocument,
             cancellationToken);
 
-        return runs;
+        return new TimedScoredRuns(runs, indexingSeconds, latencies, units.Count, maxPerDocument);
+    }
+
+    /// <summary>
+    /// Reads every vector the run will need — one per unit text and one per judged query text —
+    /// from disk into the cache's memory, before any timed span starts. All the run's cache I/O
+    /// happens here; the spans then measure the entrant with embedding already paid for, and a
+    /// cold cache fails loudly in <see cref="EmbeddingCache.Prefetch"/> rather than being timed.
+    /// </summary>
+    private static void PrefetchEveryVectorTheRunWillNeed(
+        EmbeddingCache embeddings, IReadOnlyList<TextChunk> units, IReadOnlyList<BeirQuery> queries)
+    {
+        var texts = new string[units.Count + queries.Count];
+        for (var i = 0; i < units.Count; i++)
+        {
+            texts[i] = units[i].Text;
+        }
+
+        for (var i = 0; i < queries.Count; i++)
+        {
+            texts[units.Count + i] = queries[i].Text;
+        }
+
+        embeddings.Prefetch(texts);
     }
 
     /// <summary>
@@ -409,7 +497,12 @@ public static class BeirHarness
         return (most, perDocument.Count);
     }
 
-    /// <summary>Embeds every unit through the cache and stores it.</summary>
+    /// <summary>
+    /// Embeds every unit through the cache and stores it. Under
+    /// <see cref="RetrieveScoredRunsAsync"/> the cache has been prefetched, so "embeds" resolves
+    /// to an in-memory lookup and the timed span around this call holds no disk I/O; under
+    /// <see cref="MeasureAsync"/> the cache reads disk and embeds misses as it always did.
+    /// </summary>
     private static async Task IndexAsync(
         OnnxEmbeddingGenerator generator,
         EmbeddingCache embeddings,
@@ -470,8 +563,17 @@ public static class BeirHarness
     /// The exclusion is BEIR's own: <c>DenseRetrievalExactSearch.search</c> pushes a hit only
     /// <c>if corpus_id != query_id</c>, and MTEB exposes it as <c>ignore_identical_ids</c>.
     /// </para>
+    /// <para>
+    /// Each query's latency spans <b>the row's retrieval only</b> — embed-through-cache and
+    /// search, the operations the Python harness brackets as its entrants' <c>retrieve</c> call.
+    /// The pooled-query bookkeeping and <see cref="DocumentRanking.TopDocuments"/> stay outside
+    /// the span: pooling is harness protocol, deliberately identical across entrants. Under the
+    /// comparison rows the query embedding resolves from the prefetched memory map, so the span
+    /// holds the row's search with no disk read to inherit the OS page cache's state.
+    /// </para>
     /// </remarks>
-    private static async Task<(IReadOnlyDictionary<string, IReadOnlyList<ScoredDocument>> Runs, int PooledQueries)>
+    private static async Task<(IReadOnlyDictionary<string, IReadOnlyList<ScoredDocument>> Runs,
+        int PooledQueries, IReadOnlyDictionary<string, double> QueryLatenciesMilliseconds)>
         RetrieveAsync(
             AblationRow row,
             OnnxEmbeddingGenerator generator,
@@ -485,6 +587,7 @@ public static class BeirHarness
         var excludesSelf = descriptor.ExcludesSelfRetrievedDocument;
         var runs = new Dictionary<string, IReadOnlyList<ScoredDocument>>(
             queries.Count, StringComparer.Ordinal);
+        var latencies = new Dictionary<string, double>(queries.Count, StringComparer.Ordinal);
         var options = new SearchOptions
         {
             TopK = (Cutoff + (excludesSelf ? 1 : 0)) * maxUnitsPerDocument,
@@ -493,8 +596,10 @@ public static class BeirHarness
         var pooledQueries = 0;
         for (var i = 0; i < queries.Count; i++)
         {
+            var startedAt = Stopwatch.GetTimestamp();
             var hits = await row.RetrieveAsync(
                 queries[i], generator, embeddings, store, options, cancellationToken);
+            latencies[queries[i].Id] = Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds;
 
             // The same excluded id goes to both, and it has to. DocumentRanking drops the
             // excluded document's chunks BEFORE it pools, so a query whose only repeated
@@ -513,7 +618,7 @@ public static class BeirHarness
                 hits, Cutoff, excludedDocumentId);
         }
 
-        return (runs, pooledQueries);
+        return (runs, pooledQueries, latencies);
     }
 
     /// <summary>

@@ -80,15 +80,33 @@ public sealed class BeirComparisonControlTests
 
         using var generator = BeirHarness.CreateGenerator(modelPath, vocabPath);
         var embeddings = new EmbeddingCache(cacheDirectory, BeirHarness.ModelIdentity);
-        var scoredRuns = await BeirHarness.RetrieveScoredRunsAsync(
+        // The cache counters bracket the whole run, and they move in the harness's untimed
+        // prefetch: RetrieveScoredRunsAsync reads every needed vector into memory before either
+        // span starts, so the sidecar's hits/misses describe what the disk held while the timed
+        // spans never touch it. The indexing figure is index construction with embedding (and
+        // its I/O) already paid for — deliberately not "the cost of indexing", because one disk
+        // read per text inside the span measured the OS page cache, not the entrant. The spans
+        // themselves live in the harness, around the same operations every entrant brackets:
+        // index construction, and each retrieval call with pooling outside.
+        var hitsBefore = embeddings.Hits;
+        var missesBefore = embeddings.Misses;
+        var measured = await BeirHarness.RetrieveScoredRunsAsync(
             descriptor, dataset, BeirHarness.OneChunkPerDocument(dataset.Documents),
             AblationRow.Dense, generator, embeddings, ct);
 
         var runFilePath = RunFilePath(cacheDirectory, datasetName);
-        TrecRunFile.Write(runFilePath, scoredRuns, RunTag);
+        TrecRunFile.Write(runFilePath, measured.Runs, RunTag);
+        TimingsSidecar.Write(
+            runFilePath,
+            new EntrantTimings(
+                RunTag, measured.IndexingSeconds, measured.QueryLatenciesMilliseconds,
+                checked((int)(embeddings.Hits - hitsBefore)),
+                checked((int)(embeddings.Misses - missesBefore)),
+                measured.UnitCount, measured.MaxUnitsPerDocument),
+            BeirHarness.RunIndex);
         var readBack = TrecRunFile.Read(runFilePath);
 
-        AssertRoundTripPreservedEveryRanking(scoredRuns, readBack);
+        AssertRoundTripPreservedEveryRanking(measured.Runs, readBack);
 
         var evaluation = IrMetrics.Evaluate(readBack, dataset.Qrels, BeirHarness.Cutoff);
         _output.WriteLine(Describe(descriptor, runFilePath, evaluation));

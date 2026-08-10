@@ -50,7 +50,7 @@ public sealed class WebCrawlerDataProvider : IFileContentProvider
             string html;
             try
             {
-                html = await _httpClient.GetStringAsync(url, cancellationToken).ConfigureAwait(false);
+                html = await _httpClient.GetStringWithCharsetFallbackAsync(url, cancellationToken).ConfigureAwait(false);
             }
             catch (HttpRequestException)
             {
@@ -86,9 +86,9 @@ public sealed class WebCrawlerDataProvider : IFileContentProvider
     /// is <c>"0"</c>), which lets a caller keep only shallow pages at query time. Built
     /// synchronously — assembling the dictionary inside the async iterator would trip HLQ012.
     /// </summary>
-    private static Dictionary<string, string> BuildMetadata(string url, int depth)
+    private static Dictionary<string, MetadataValue> BuildMetadata(string url, int depth)
     {
-        var metadata = new Dictionary<string, string>(StringComparer.Ordinal)
+        var metadata = new Dictionary<string, MetadataValue>(StringComparer.Ordinal)
         {
             ["url"]   = url,
             ["depth"] = depth.ToString(CultureInfo.InvariantCulture),
@@ -104,27 +104,7 @@ public sealed class WebCrawlerDataProvider : IFileContentProvider
         try
         {
             var robotsUrl = new Uri(seedUri, "/robots.txt").ToString();
-            using var response = await _httpClient.GetAsync(robotsUrl, ct).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
-
-            var bytes = await response.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
-
-            // Try to get encoding from Content-Type header, fallback to UTF-8
-            var encoding = Encoding.UTF8;
-            var charset = response.Content.Headers.ContentType?.CharSet;
-            if (!string.IsNullOrEmpty(charset))
-            {
-                try
-                {
-                    encoding = Encoding.GetEncoding(charset);
-                }
-                catch (ArgumentException)
-                {
-                    // Invalid charset, use UTF-8 fallback
-                }
-            }
-
-            var content = encoding.GetString(bytes);
+            var content = await _httpClient.GetStringWithCharsetFallbackAsync(robotsUrl, ct).ConfigureAwait(false);
             return ParseRobotsDisallowed(content);
         }
         catch (HttpRequestException)

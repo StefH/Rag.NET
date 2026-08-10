@@ -56,15 +56,48 @@ public class PropositionChunkingStrategyTests
         Assert.Equal("Fact two.", chunks[1].Text);
         Assert.All(chunks, c =>
         {
-            Assert.Equal("proposition", c.Metadata["chunk.kind"]);
-            Assert.Equal(0, int.Parse(c.Metadata["parent.start"], System.Globalization.CultureInfo.InvariantCulture));
-            Assert.Equal(text.Length, int.Parse(c.Metadata["parent.end"], System.Globalization.CultureInfo.InvariantCulture));
+            Assert.Equal<MetadataValue>("proposition", c.Metadata["chunk.kind"]);
+            Assert.Equal(0, int.Parse(c.Metadata["parent.start"].ToString(), System.Globalization.CultureInfo.InvariantCulture));
+            Assert.Equal(text.Length, int.Parse(c.Metadata["parent.end"].ToString(), System.Globalization.CultureInfo.InvariantCulture));
             Assert.Equal(0, c.StartPosition);
             Assert.Equal(text.Length, c.EndPosition);
             Assert.Equal(new DocumentId("doc1"), c.DocumentId);
         });
         Assert.Equal(0, chunks[0].ChunkIndex);
         Assert.Equal(1, chunks[1].ChunkIndex);
+    }
+
+    private const string PropositionPayload = """["Fact one.","Fact two."]""";
+
+    public static TheoryData<string, string> WrappedResponseShapes() => new()
+    {
+        { "preamble then unlabelled fence", $"Here are the propositions in JSON format:\n\n```\n{PropositionPayload}\n```" },
+        { "preamble then labelled fence", $"Sure! Here you go:\n\n```json\n{PropositionPayload}\n```" },
+        { "preamble then bare array", $"Here are the propositions:\n\n{PropositionPayload}" },
+        { "fence then trailing prose", $"```\n{PropositionPayload}\n```\n\nLet me know if you need anything else." },
+    };
+
+    [Theory]
+    [MemberData(nameof(WrappedResponseShapes))]
+    public async Task WhenLlmWrapsTheArray_PropositionsStillEmerge(string shape, string response)
+    {
+        // The old strip ran only when the response STARTED with a fence, so each of these shapes
+        // threw in JsonNode.Parse and silently downgraded the passage to a fallback chunk —
+        // green pipeline, no propositions, one warning.
+        var ct = TestContext.Current.CancellationToken;
+        const string text = "Fact one is stated here. Fact two is stated there.";
+        var sut = MakeSut(ChatReturning(response));
+
+        var chunks = await sut.ChunkDocumentAsync(
+            ToAsync([Section(text)]), new ChunkingOptions(), ct).ToListAsync(ct);
+
+        Assert.True(
+            chunks.Count == 2 && chunks[0].Metadata["chunk.kind"] == (MetadataValue)"proposition",
+            $"The '{shape}' response produced {chunks.Count} chunk(s) of kind " +
+            $"'{chunks[0].Metadata["chunk.kind"]}'. The array inside it is valid, so parsing " +
+            "failed to find it and the passage silently fell back.");
+        Assert.Equal("Fact one.", chunks[0].Text);
+        Assert.Equal("Fact two.", chunks[1].Text);
     }
 
     [Fact]
@@ -79,7 +112,7 @@ public class PropositionChunkingStrategyTests
 
         Assert.Single(chunks);
         Assert.Equal(text, chunks[0].Text);
-        Assert.Equal("passage", chunks[0].Metadata["chunk.kind"]);
+        Assert.Equal<MetadataValue>("passage", chunks[0].Metadata["chunk.kind"]);
     }
 
     [Fact]
@@ -97,7 +130,7 @@ public class PropositionChunkingStrategyTests
 
         Assert.Single(chunks);
         Assert.Equal(text, chunks[0].Text);
-        Assert.Equal("passage", chunks[0].Metadata["chunk.kind"]);
+        Assert.Equal<MetadataValue>("passage", chunks[0].Metadata["chunk.kind"]);
     }
 
     [Fact]
@@ -111,7 +144,7 @@ public class PropositionChunkingStrategyTests
 
         Assert.Single(chunks);
         Assert.Equal("Real.", chunks[0].Text);
-        Assert.Equal("proposition", chunks[0].Metadata["chunk.kind"]);
+        Assert.Equal<MetadataValue>("proposition", chunks[0].Metadata["chunk.kind"]);
     }
 
     [Fact]
@@ -141,10 +174,10 @@ public class PropositionChunkingStrategyTests
             ToAsync([Section(text)]), new ChunkingOptions(), ct).ToListAsync(ct);
 
         Assert.Equal(3, chunks.Count);
-        Assert.Equal("passage", chunks[0].Metadata["chunk.kind"]);
+        Assert.Equal<MetadataValue>("passage", chunks[0].Metadata["chunk.kind"]);
         Assert.Equal(text, chunks[0].Text);
-        Assert.Equal("proposition", chunks[1].Metadata["chunk.kind"]);
-        Assert.Equal("proposition", chunks[2].Metadata["chunk.kind"]);
+        Assert.Equal<MetadataValue>("proposition", chunks[1].Metadata["chunk.kind"]);
+        Assert.Equal<MetadataValue>("proposition", chunks[2].Metadata["chunk.kind"]);
         Assert.Equal([0, 1, 2], chunks.Select(c => c.ChunkIndex));
     }
 
@@ -189,7 +222,7 @@ public class PropositionChunkingStrategyTests
 
         Assert.Equal(2, chunks.Count);
         Assert.Equal("Fact one.", chunks[0].Text);
-        Assert.All(chunks, c => Assert.Equal("proposition", c.Metadata["chunk.kind"]));
+        Assert.All(chunks, c => Assert.Equal<MetadataValue>("proposition", c.Metadata["chunk.kind"]));
     }
 
     [Fact]
@@ -204,7 +237,7 @@ public class PropositionChunkingStrategyTests
 
         Assert.Single(chunks);
         Assert.Equal(text, chunks[0].Text);
-        Assert.Equal("passage", chunks[0].Metadata["chunk.kind"]);
+        Assert.Equal<MetadataValue>("passage", chunks[0].Metadata["chunk.kind"]);
     }
 
     [Fact]
@@ -219,7 +252,7 @@ public class PropositionChunkingStrategyTests
 
         Assert.Single(chunks);
         Assert.Equal(text, chunks[0].Text);
-        Assert.Equal("passage", chunks[0].Metadata["chunk.kind"]);
+        Assert.Equal<MetadataValue>("passage", chunks[0].Metadata["chunk.kind"]);
     }
 
     [Fact]
@@ -234,7 +267,7 @@ public class PropositionChunkingStrategyTests
         Assert.Equal(2, chunks.Count);
         Assert.Equal("Fact one.", chunks[0].Text);
         Assert.Equal("Fact two.", chunks[1].Text);
-        Assert.All(chunks, c => Assert.Equal("proposition", c.Metadata["chunk.kind"]));
+        Assert.All(chunks, c => Assert.Equal<MetadataValue>("proposition", c.Metadata["chunk.kind"]));
     }
 
     [Fact]

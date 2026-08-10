@@ -11,7 +11,7 @@ Data providers are connectors that enumerate remote files and stream their conte
 
 ```csharp
 // Typical usage: provider registered in DI, pipeline receives it via injection
-var result = await pipeline.IngestFromProviderAsync(provider, "my-corpus",
+var result = await pipeline.IngestFromProviderAsync(provider, new ProviderId("my-corpus"),
     hashStore: sp.GetRequiredService<IContentHashStore>(),
     cleanupMode: CleanupMode.Full);
 
@@ -19,6 +19,50 @@ Console.WriteLine($"Ingested: {result.Ingested}, Skipped: {result.Skipped}, Dele
 ```
 
 The pipeline compares each file's ETag against the content hash store. Files whose ETag is unchanged since the last run are skipped automatically — no re-embedding, no re-storing.
+
+### Writing your own provider
+
+Implement `IFileContentProvider` and yield one `FileEntry` per document. Nothing else is required — no base metadata, no registration ceremony:
+
+```csharp
+public sealed class MyProvider : IFileContentProvider
+{
+    public async IAsyncEnumerable<Result<FileEntry, RagError>> GetFilesAsync(
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        yield return Result<FileEntry, RagError>.Success(new FileEntry(
+            new EntryId("field-guide"),
+            "field-guide.pdf",
+            ct => Task.FromResult<Stream>(File.OpenRead(@"C:\docs\field-guide.pdf")),
+            ETag: "v1",
+            ContentType: "application/pdf"));
+    }
+}
+
+var result = await pipeline.IngestFromProviderAsync(myProvider, new ProviderId("combined"));
+```
+
+**Set `ContentType` per entry** when your provider yields more than one kind of file — it selects the parser, and a batch-level default cannot describe a provider serving both PDFs and Markdown. Leave it `null` and the pipeline resolves the type itself.
+
+**`baseMetadata` is optional and usually unnecessary.** `DocumentId` and `FileName` come from each `FileEntry`, so passing a batch-level `DocumentMetadata` just to declare a content type means inventing values the pipeline immediately overwrites. Use `ContentType` on the entry instead.
+
+**`[EnumeratorCancellation]` goes on your implementation, not the interface.** That is a C# requirement rather than an API choice: the attribute tells the compiler which parameter carries the token when it rewrites your iterator, and it cannot be inherited from an interface declaration. Omit it and the compiler warns (`CS8425`) and cancellation stops flowing into your loop.
+
+### Why the IDs are types, not strings
+
+`ProviderId`, `DocumentId`, `EntryId` and `SessionId` are value objects, and they convert in one direction only:
+
+```csharp
+ProviderId id = new("my-corpus");   // or: (ProviderId)"my-corpus"
+string raw = id;                     // implicit — always works
+ProviderId back = "my-corpus";       // does not compile, on purpose
+```
+
+**Out is implicit, in is explicit.** Unwrapping to a string always succeeds, so logging, dictionary keys and comparisons stay unceremonious. Wrapping one has to be written down.
+
+That asymmetry is the whole point. These are all `string` underneath, so if the conversion ran both ways implicitly the compiler would happily accept a filename, a user's input, or another id's value anywhere one of them is expected — and the type would document intent rather than enforce it. Every one of them also rejects null and empty in its constructor, and an implicit conversion would move that exception to a line you never wrote.
+
+It costs a `new` at the call site. That is the price of the compiler catching the mix-up instead of the vector store.
 
 ---
 
@@ -520,9 +564,17 @@ services.AddAirtableDataProvider(
     personalAccessToken: "patXXXXXXXXXXXXXX",
     configure: opts =>
     {
+        opts.LastModifiedFieldName = "Last Modified";  // names the field delta runs filter on
         opts.DeltaToken = settings.AirtableDeltaToken; // ISO 8601 timestamp; null on first run
     });
 ```
+
+Delta runs require a "Last modified time" field in the table, named via
+`AirtableOptions.LastModifiedFieldName`. When both it and `DeltaToken` are set, listing is filtered with
+`LAST_MODIFIED_TIME({Field})>'token'` — scoped to that field, not to the record's most recent
+change to any field. Field names containing `{` or `}` are rejected at construction (Airtable's
+formula grammar cannot escape braces inside a field reference), as are delta tokens containing
+anything outside ISO-8601 timestamp characters, since both are interpolated into the formula.
 
 ### Web — Sitemap
 
@@ -661,7 +713,7 @@ app.UseRagNetApiAuthentication();
 app.MapRagNetWebhooks(); // POST /rag/webhooks/ingest
 ```
 
-Webhook requests are authenticated by an HMAC-SHA256 signature over the **raw request body**, hex-encoded in the signature header (a GitHub-style `sha256=` prefix is tolerated; the comparison is timing-safe). The webhook route prefix is exempted from `ApiKeyMiddleware` — the signature replaces the API key for webhook callers, while all other API routes keep requiring the key.
+Webhook requests are authenticated by an HMAC-SHA256 signature over the **raw request body**, hex-encoded in the signature header (a GitHub-style `sha256=` prefix is tolerated; the comparison is timing-safe). The webhook route prefix is exempted from `ApiKeyMiddleware` — the signature replaces the API key for webhook callers, while all other API routes keep requiring the key. `MapRagNetApi()` guards that boundary at mapping time: a `RoutePrefix` that is a parent of any of the API's own routes (e.g. `"/rag"`, which would exempt `/rag/ingest`) throws instead of silently disabling API-key auth on those routes.
 
 The built-in `GenericWebhookPayloadParser` accepts a single object or an array of:
 
@@ -873,11 +925,10 @@ Where a connector already renders a value into the Markdown body it emits (`**St
 | Rule | Detail |
 |-------|--------|
 | Keys are `snake_case` | Lowercase letters, digits and underscores; unprefixed, no leading or trailing underscore. |
-| Values are always `string` | The dictionary is `IReadOnlyDictionary<string, string>`. Numeric values (`depth`, `version`, `message_count`, `section_id`) are rendered with the invariant culture. |
-| Booleans are `"true"` / `"false"` | Lowercase literals. `bool.ToString()` yields `"True"`, which does not match ordinally in `HasTagSpec` — so the tag deliberately differs from the same value's rendering in the Markdown body. |
+| Values are typed (`MetadataValue`) | The dictionary is `IReadOnlyDictionary<string, MetadataValue>` — string, number, boolean or date, and the kind survives to `TextChunk.Metadata` and the vector store (see [Typed metadata](vector-stores.md#typed-metadata)). The built-in connectors currently emit their historical string renderings (numbers with the invariant culture, booleans as lowercase `"true"`/`"false"`), preserving what existing filters match; a custom connector is free to emit real numbers, booleans and dates. |
 | Timestamps a connector formats itself are ISO-8601 round-trip | `ToString("o", CultureInfo.InvariantCulture)`. Values passed through verbatim from a vendor API are **not** normalised — see the caveats below. |
-| Optional fields are omitted, never written empty | An empty tag value is indistinguishable from a real one at query time, so a connector leaves the key out entirely. |
-| The dictionary is ordinal | `new Dictionary<string, string>(StringComparer.Ordinal)`, matching `DocumentMetadata.Tags`. |
+| Optional fields are omitted, never written empty | An empty string tag value is indistinguishable from a real one at query time, so a connector leaves the key out entirely. (Numbers, booleans and dates always carry a real value.) |
+| The dictionary is ordinal | `new Dictionary<string, MetadataValue>(StringComparer.Ordinal)`, matching `DocumentMetadata.Tags`. |
 | Nothing to add → `null` | A connector with nothing to say returns `null`, not an empty dictionary — one representation, not two. |
 
 ### `provider_id`
@@ -928,7 +979,7 @@ A key in the **Always** column is still omitted if its source value comes back e
 
 ### Reserved keys
 
-Eight keys are written (or read) by the framework itself and must never be emitted by a connector:
+Ten keys are written (or read) by the framework itself and must never be emitted by a connector:
 
 | Key | Written by | Read by |
 |-----|-----------|---------|
@@ -940,8 +991,10 @@ Eight keys are written (or read) by the framework itself and must never be emitt
 | `_parentKey` | parent/child chunking | parent-document retrieval |
 | `allowed_roles` | *nobody* — supplied by the caller | `RbacRetrievalGuard` |
 | `trust_level` | *nobody* — supplied by the caller | `TrustLevelRetrievalGuard` |
+| `page` | the chunking strategies, from `DocumentSection.PageNumber` | consumers citing a chunk back to its source page |
+| `page_end` | the chunking strategies, together with `page` | consumers rendering a page range |
 
-`updated_at` joined this list in Phase 4.10, together with the migration of the five connectors that used to hand-write it as a plain tag (Asana, Jira, Notion, Zendesk Articles, Zendesk Tickets) — see [Timestamps](#timestamps-createdat-and-updatedat) below.
+`updated_at` joined this list in Phase 4.10, together with the migration of the five connectors that used to hand-write it as a plain tag (Asana, Jira, Notion, Zendesk Articles, Zendesk Tickets) — see [Timestamps](#timestamps-createdat-and-updatedat) below. `page`/`page_end` joined with the typed-metadata change (#91/#82) — see [Page attribution](ingestion.md#page-attribution).
 
 A connector that emits one of these throws `ReservedMetadataKeyException` out of `IngestFromProviderAsync`, naming the offending key, the provider id and the entry id.
 
@@ -955,7 +1008,7 @@ Consequences worth knowing:
 
 ### Timestamps: CreatedAt and UpdatedAt
 
-Beside the string-tag `Metadata` dictionary, `FileHandle` and `FileEntry` each carry two optional typed fields — `CreatedAt` and `UpdatedAt`, both `DateTime?` — forwarded onto `DocumentMetadata.CreatedAt`/`UpdatedAt` when the entry survives filtering. `MetadataBehavior` turns whichever of the two is set into the reserved `created_at`/`updated_at` chunk tags (see [Reserved keys](#reserved-keys) above), and `TimeWeightedRetriever` reads them at query time — `updated_at` in preference to `created_at` — to rank fresher content higher. See [Retrieval — Time-Weighted Retrieval](retrieval.md#time-weighted-retrieval) for the full resolution order and why a modified timestamp outranks a creation one.
+Beside the typed `Metadata` dictionary, `FileHandle` and `FileEntry` each carry two optional typed fields — `CreatedAt` and `UpdatedAt`, both `DateTime?` — forwarded onto `DocumentMetadata.CreatedAt`/`UpdatedAt` when the entry survives filtering. `MetadataBehavior` turns whichever of the two is set into the reserved `created_at`/`updated_at` chunk tags (see [Reserved keys](#reserved-keys) above), and `TimeWeightedRetriever` reads them at query time — `updated_at` in preference to `created_at` — to rank fresher content higher. See [Retrieval — Time-Weighted Retrieval](retrieval.md#time-weighted-retrieval) for the full resolution order and why a modified timestamp outranks a creation one.
 
 Not every connector holds both concepts on the objects it fetches, and none fabricates the one it lacks — a connector with only a modification time sets `UpdatedAt` and leaves `CreatedAt` unset, never the other way around. Verified against each connector's source, not assumed:
 

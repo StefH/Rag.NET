@@ -1,48 +1,75 @@
 using Rag.NET.Models;
 using ZeroAlloc.Specification;
+using ZeroAlloc.Validation;
 
 namespace Rag.NET.Models.Options;
 
-// Note: [Validate] is intentionally absent. The ZeroAlloc.Validation source generator
-// does not support record types. Validation for TopK, RedundancyThreshold, and MmrLambda
-// is applied manually in PipelineRetriever.RetrieveAsync.
 /// <summary>
 /// Per-call overrides for <c>IRetriever.RetrieveAsync</c>. Unset properties fall back to whatever
 /// the pipeline was configured with at startup.
 /// </summary>
+[Validate]
 public sealed record RetrievalOptions
 {
     /// <summary>
-    /// Chunks to return after all pipeline stages. Defaults to 5. <c>PipelineRetriever</c>
-    /// rejects a value that is not greater than 0 with a validation failure rather than clamping
-    /// it.
+    /// Chunks to return after all pipeline stages. Defaults to 5. Must be greater than 0 —
+    /// enforced by the validation attribute, which <c>PipelineRetriever.RetrieveAsync</c> runs
+    /// through the generated <c>RetrievalOptionsValidator</c>, rejecting the call with a
+    /// validation failure rather than clamping the value.
     /// </summary>
+    [GreaterThan(0)]
     public int TopK { get; init; } = 5;
 
     /// <summary>
     /// Minimum similarity score a retrieved chunk must meet — a similarity score, not a
     /// percentage. Defaults to 0.0 (no filtering). Passed straight through to the vector store's
     /// own score threshold; filtering happens inside the store, not here.
+    /// <para>
+    /// Deliberately unbounded apart from rejecting non-finite values (NaN and infinities):
+    /// inner-product stores return unbounded scores, and stores implementing
+    /// <see cref="Rag.NET.Abstractions.IScoreScaleAware"/> with
+    /// <see cref="Rag.NET.Abstractions.ScoreScale.OpaqueRanking"/> return RRF values on an
+    /// entirely different scale, so a zero-to-one bound would reject configurations that are
+    /// legitimate for those stores. Only the declared score scale could justify a tighter
+    /// bound, and this record does not know the store.
+    /// </para>
     /// </summary>
+    [Must(nameof(MinScoreIsFinite), Message = "MinScore must be a finite number (not NaN or infinity).")]
     public double MinScore { get; init; } = 0.0;
+
+    /// <summary>Reports whether <see cref="MinScore"/> is a finite number.</summary>
+    /// <param name="value">The <see cref="MinScore"/> value under validation.</param>
+    /// <returns>Whether the value is neither NaN nor infinite.</returns>
+    internal bool MinScoreIsFinite(double value) => double.IsFinite(value);
 
     /// <summary>
     /// Restricts retrieval to chunks whose metadata matches every key/value pair exactly
-    /// (ordinal string equality, AND semantics across pairs). <see langword="null"/> or an empty
-    /// dictionary means no filtering.
+    /// (typed equality — a number filter value matches a number, not its string form — with
+    /// ordinal comparison for strings and AND semantics across pairs). <see langword="null"/> or
+    /// an empty dictionary means no filtering.
     /// </summary>
-    public IDictionary<string, string>? MetadataFilter { get; init; }
+    public IDictionary<string, MetadataValue>? MetadataFilter { get; init; }
 
     /// <summary>
-    /// Combines dense vector search with sparse/keyword search for this call, fused by
-    /// reciprocal rank; see <see cref="EnsembleOptions"/> for weighting. Defaults to
-    /// <see langword="false"/> (dense search only).
+    /// Combines dense vector search with sparse/keyword search for this call. Defaults to
+    /// <see langword="false"/> (dense search only). Served by one of two mechanisms:
+    /// when the registered store implements <see cref="Rag.NET.Abstractions.IHybridSearchable"/>
+    /// and this call configures nothing native fusion cannot express — no sparse (SPLADE) arm
+    /// would run, <see cref="EnsembleOptions"/> is not supplied, and <see cref="MinScore"/> is
+    /// <c>0.0</c> — the store's own server-side hybrid query runs in a single backend call and
+    /// returns scores on the backend's fusion scale. Otherwise dense and BM25 (and, when
+    /// active, sparse) searches run client-side and are merged by reciprocal rank fusion with
+    /// <see cref="EnsembleOptions"/> weights, returning RRF scores. Either way the scores are
+    /// not similarities — treat them as ordinal.
     /// </summary>
     public bool UseHybridSearch { get; init; }
 
     /// <summary>
     /// Per-retriever weights and k for RRF hybrid search.
     /// Null applies defaults (0.5 / 0.5 / 60). Only used when <see cref="UseHybridSearch"/> is true.
+    /// When set, its own validation attributes run as part of the generated
+    /// <c>RetrievalOptionsValidator</c> (nested validation), reporting failures under
+    /// <c>EnsembleOptions.*</c> property names.
     /// </summary>
     public EnsembleOptions? EnsembleOptions { get; init; }
 
@@ -74,10 +101,12 @@ public sealed record RetrievalOptions
 
     /// <summary>
     /// Cosine similarity at or above which two chunks are treated as redundant, so the later one
-    /// is dropped. Range 0.0–1.0 — <c>PipelineRetriever</c> rejects a value outside that range
-    /// with a validation failure. Default 0.95. Ignored unless <see cref="UseRedundancyFilter"/>
+    /// is dropped. Range 0.0–1.0 — enforced by the validation attribute;
+    /// <c>PipelineRetriever.RetrieveAsync</c> rejects a value outside that range with a
+    /// validation failure. Default 0.95. Ignored unless <see cref="UseRedundancyFilter"/>
     /// is <see langword="true"/>.
     /// </summary>
+    [InclusiveBetween(0.0, 1.0)]
     public float RedundancyThreshold { get; init; } = 0.95f;
 
     /// <summary>
@@ -90,16 +119,31 @@ public sealed record RetrievalOptions
     /// <summary>
     /// Lambda parameter for MMR: weight between relevance and diversity.
     /// <c>1.0</c> = pure relevance (no diversity), <c>0.0</c> = pure diversity (ignores relevance).
-    /// Default <c>0.5</c> balances both.
+    /// Default <c>0.5</c> balances both. Range 0.0–1.0 — enforced by the validation attribute;
+    /// <c>PipelineRetriever.RetrieveAsync</c> rejects a value outside it with a validation
+    /// failure.
     /// </summary>
+    [InclusiveBetween(0.0, 1.0)]
     public float MmrLambda { get; init; } = 0.5f;
 
     /// <summary>
     /// Number of candidates to fetch before MMR selection.
     /// Defaults to <see cref="TopK"/> * 3 when <see langword="null"/>.
     /// Ignored when <see cref="UseMmr"/> is <see langword="false"/>.
+    /// <para>
+    /// When set, must be greater than 0 — enforced by the validation attribute
+    /// (<see langword="null"/> passes). <c>MmrBehavior</c> overwrites the downstream
+    /// <see cref="TopK"/> with this value, and vector stores return no results for a
+    /// non-positive limit — so an unvalidated 0 here would silently replace the validated
+    /// <see cref="TopK"/> and empty every retrieval (issue #94).
+    /// </para>
     /// </summary>
+    [GreaterThan(0, When = nameof(MmrCandidateCountIsSet))]
     public int? MmrCandidateCount { get; init; }
+
+    /// <summary>Reports whether <see cref="MmrCandidateCount"/> is set, so the bound only applies then.</summary>
+    /// <returns>Whether <see cref="MmrCandidateCount"/> has a value.</returns>
+    internal bool MmrCandidateCountIsSet() => MmrCandidateCount is not null;
 
     /// <summary>
     /// Set to <see langword="false"/> to skip multi-query expansion for this call,
@@ -120,8 +164,20 @@ public sealed record RetrievalOptions
     /// When an <see cref="Rag.NET.Abstractions.IReranker"/> is registered and this is
     /// <see langword="null"/>, defaults to <see cref="TopK"/> * 3.
     /// Ignored when no reranker is registered or <see cref="UseReranking"/> is <see langword="false"/>.
+    /// <para>
+    /// When set, must be greater than 0 — enforced by the validation attribute
+    /// (<see langword="null"/> passes). <c>RerankingBehavior</c> overwrites the downstream
+    /// <see cref="TopK"/> with this value, and vector stores return no results for a
+    /// non-positive limit — so an unvalidated 0 here would silently replace the validated
+    /// <see cref="TopK"/> and empty every retrieval (issue #94).
+    /// </para>
     /// </summary>
+    [GreaterThan(0, When = nameof(CandidateCountIsSet))]
     public int? CandidateCount { get; init; }
+
+    /// <summary>Reports whether <see cref="CandidateCount"/> is set, so the bound only applies then.</summary>
+    /// <returns>Whether <see cref="CandidateCount"/> has a value.</returns>
+    internal bool CandidateCountIsSet() => CandidateCount is not null;
 
     /// <summary>
     /// Optional post-search filter. Only results satisfying this specification are returned.
@@ -155,8 +211,11 @@ public sealed record RetrievalOptions
 
     /// <summary>
     /// Minimum fraction of results classified as relevant before CRAG triggers web fallback.
-    /// Range: 0.0–1.0. Default <c>0.5</c>.
+    /// Range: 0.0–1.0 — enforced by the validation attribute;
+    /// <c>PipelineRetriever.RetrieveAsync</c> rejects a value outside that range with a
+    /// validation failure. Default <c>0.5</c>.
     /// </summary>
+    [InclusiveBetween(0.0, 1.0)]
     public float CragScoreThreshold { get; init; } = 0.5f;
 
     /// <summary>

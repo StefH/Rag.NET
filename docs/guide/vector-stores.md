@@ -16,7 +16,8 @@ The vector store is the persistence layer for embedded chunks. Rag.NET ships six
 | Dense (semantic) search | Yes | Yes | Yes | Yes | Yes | Yes |
 | Hybrid search (native) | No — BM25 fallback | No — BM25 fallback | Yes (`IHybridSearchable`) | Yes (`IHybridSearchable`) | No — BM25 fallback | No — BM25 fallback |
 | Sparse search (SPLADE, `ISparseSearchable`) | Yes (`enableSparseVectors: true`) | Yes (`enableSparseVectors: true`) | No | No | No | Yes (`EnableSparseVectors = true`) |
-| Metadata filtering | Yes (JSONB `@>`) | Yes (payload match) | Yes (`search.ismatch`) | Yes (`where` on `meta_*` props) | Yes (`where` `$eq`/`$and`) | Yes (filter `$eq`/`$and`) |
+| Metadata filtering | Yes (JSONB `@>`) | Yes (payload match / numeric range) | Yes (typed `metadata_entries/any(...)`) | Yes (typed `where` on `meta_*` props) | Yes (`where` `$eq`/`$and`) | Yes (filter `$eq`/`$and`) |
+| Typed metadata round-trip | Yes (native JSONB types) | Yes (native payload types) | Yes (typed complex-collection slots) | Yes (typed auto-schema props) | Yes (native values; dates as sentinel) | Yes (native values; dates as sentinel) |
 | `ICollectionManageable` | Yes | Yes | Yes | Yes | Yes | Yes |
 | Similarity function | Cosine (via `<=>`); dot product when sparse (`<#>`) | Cosine | Cosine | Cosine | Cosine | Cosine (dotproduct when sparse) |
 | Index algorithm | HNSW at ≤ 2000 dims, **exact scan above** (see [below](#dense-index-and-search-behaviour)) | HNSW | HNSW | HNSW | HNSW | Serverless (managed) |
@@ -105,7 +106,24 @@ public interface IVectorStore
 }
 ```
 
-`SearchOptions` carries `TopK`, `MinScore`, `MetadataFilter`, and `UseHybridSearch`. The `UseHybridSearch` flag in `SearchOptions` is used by `IHybridSearchable` implementations; stores that do not implement that interface ignore it (the pipeline handles routing before calling `SearchAsync`).
+`SearchOptions` carries `TopK`, `MinScore`, and `MetadataFilter`. Hybrid routing is not part of it: the pipeline decides between `SearchAsync` and `IHybridSearchable.HybridSearchAsync` *before* calling the store (see [Retrieval — How the hybrid path is selected](retrieval.md#how-the-hybrid-path-is-selected)), so a store implementation never sees a hybrid flag.
+
+### Typed metadata
+
+Chunk metadata values are typed (`MetadataValue`: string, number, boolean, or date — see the [ingestion guide](./ingestion.md#typed-metadata-values)), and every store persists the type: a `page` written as the number `3` is stored as a number, read back as a number, and filtered as a number. `MetadataFilter` takes the same typed values, so a numeric filter is a numeric comparison in the store, not a string match:
+
+```csharp
+var results = await pipeline.RetrieveAsync("query", new RetrievalOptions
+{
+    MetadataFilter = new Dictionary<string, MetadataValue>
+    {
+        ["department"] = "finance", // string match
+        ["page"]       = 3,         // numeric match — NOT the string "3"
+    },
+});
+```
+
+Filter values are kind-sensitive: filtering on the string `"3"` does not match a stored number `3`. Metadata stored **before** values carried types reads back losslessly as string-kind values; see each store's section (and the Azure AI Search migration note) for what that means for filtering old documents.
 
 ## Collection management
 
@@ -140,7 +158,7 @@ store absorbs its own flavour.
 
 **Package:** `Rag.NET.VectorStores.PgVector`
 
-Stores chunks in a `rag_chunks` table. Uses the `pgvector` extension for dense search via the `<=>` cosine distance operator and, when sparse vectors are enabled, for SPLADE search via the `<#>` inner-product operator over a `sparsevec` column. Metadata is stored as `JSONB` and filtered using PostgreSQL's containment operator.
+Stores chunks in a `rag_chunks` table. Uses the `pgvector` extension for dense search via the `<=>` cosine distance operator and, when sparse vectors are enabled, for SPLADE search via the `<#>` inner-product operator over a `sparsevec` column. Metadata is stored as `JSONB` with native JSON types — a number-kind `MetadataValue` is a JSON number, a boolean a JSON boolean, a date a `{"$date": ...}` wrapper — and filtered using PostgreSQL's containment operator, so a numeric filter is numeric containment.
 
 ### Setup
 
@@ -307,7 +325,7 @@ So switching to an encoder with a different vocabulary is a drop-and-re-ingest o
 
 **Package:** `Rag.NET.VectorStores.Qdrant`
 
-Stores chunks as Qdrant points with a payload. Metadata is stored both as a serialised JSON string in `metadata` and as individual `meta_{key}` payload fields to enable Qdrant's native payload filtering.
+Stores chunks as Qdrant points with a payload. Metadata is stored both as a serialised JSON string in `metadata` (the round-trip authority) and as individual typed `meta_{key}` payload fields — numbers as payload doubles, booleans as payload booleans — to enable Qdrant's native payload filtering.
 
 ### Setup
 
@@ -331,14 +349,15 @@ await store!.InitializeAsync();
 
 ### Metadata filtering
 
-Qdrant filters on `meta_{key}` payload fields using must-match conditions:
+Qdrant filters on `meta_{key}` payload fields using must conditions matched to the value's kind: strings and dates use keyword match, booleans a boolean match, and numbers a closed `gte = lte` range (Qdrant's match condition has no double form):
 
 ```csharp
 var results = await pipeline.RetrieveAsync("query", new RetrievalOptions
 {
-    MetadataFilter = new Dictionary<string, string>
+    MetadataFilter = new Dictionary<string, MetadataValue>
     {
-        ["department"] = "finance",   // matches meta_department payload field
+        ["department"] = "finance",   // keyword match on meta_department
+        ["page"]       = 3,           // numeric range 3 <= meta_page <= 3
     },
 });
 ```
@@ -363,7 +382,7 @@ Stores chunks as Azure AI Search documents. Implements both `IVectorStore` and `
 
 ```csharp
 using Azure;
-using Rag.NET.VectorStores.AzureAISearch;
+using Rag.NET.AzureAISearch;
 
 services.AddRagNet(rag => rag
     .UseAzureAISearch(
@@ -383,10 +402,11 @@ services.AddRagNet(rag => rag
 | `document_id` | `String` (filterable) | For delete-by-document |
 | `chunk_index` | `Int32` | Chunk ordinal |
 | `text` | `SearchableString` | Full-text search |
-| `metadata` | `String` | Serialised JSON |
+| `metadata` | `String` | Legacy serialised JSON (still written; read fallback) |
+| `metadata_entries` | `Collection(Edm.ComplexType)` | Typed metadata: `{key, stringValue, numberValue, boolValue, dateValue}` rows, all sub-fields filterable |
 | `embedding` | `Collection(Single)` | HNSW vector field |
 
-The vector field is configured with an HNSW algorithm profile named `"default-algorithm"`.
+The vector field is configured with an HNSW algorithm profile named `"default-algorithm"`. `metadata_entries` carries one row per metadata key with the sub-field matching the value's kind populated — which is what makes *every* metadata key filterable with its type and **no per-key schema change**: a new key needs no index update, the writer writes it and the filter finds it. Sub-fields of a complex collection cannot be marked `sortable` (they are multi-valued per document), so sorting by a metadata key is not available.
 
 ```csharp
 var store = provider.GetRequiredService<ICollectionManageable>() as AzureAISearchVectorStore;
@@ -395,7 +415,7 @@ await store!.InitializeAsync();
 
 ### Native hybrid search
 
-When `UseHybridSearch = true` and `AzureAISearchVectorStore` is registered, the pipeline calls `HybridSearchAsync` directly. This issues a single Azure AI Search request with both a full-text query and a vectorised query, letting the service perform BM25+vector fusion:
+When `UseHybridSearch = true`, `AzureAISearchVectorStore` is registered, and the call configures nothing the backend cannot express — no sparse (SPLADE) arm would run, no `EnsembleOptions`, `MinScore` left at `0.0` — the pipeline calls `HybridSearchAsync`. This issues a single Azure AI Search request with both a full-text query and a vectorised query, letting the service perform BM25+vector fusion (the [dispatch rule](retrieval.md#how-the-hybrid-path-is-selected) in full):
 
 ```csharp
 var results = await pipeline.RetrieveAsync("ISO 27001 audit requirements", new RetrievalOptions
@@ -405,24 +425,35 @@ var results = await pipeline.RetrieveAsync("ISO 27001 audit requirements", new R
 });
 ```
 
-The returned scores are Azure AI Search's internal BM25+vector fusion scores, not cosine similarities. They are positive and unbounded above; `SearchOptions.MinScore` is still applied to them store-side, but tune it against these fusion scores rather than reusing a cosine threshold. This is the hybrid path only — plain `SearchAsync` issues a pure vector query whose score is a bounded function of the similarity metric, which is why the store is treated as similarity-scaled (see [Score scale](#score-scale-iscorescaleaware)).
+The returned scores are Azure AI Search's own hybrid fusion values — [Reciprocal Rank Fusion](https://learn.microsoft.com/azure/search/hybrid-search-ranking): each fused query contributes at most about `1/60`, so a two-arm hybrid score tops out around `0.033`. Not cosine similarities, and exactly why a configured `MinScore` keeps the client-side path: a similarity-tuned threshold applied store-side to RRF values would silently return nothing. Callers invoking `HybridSearchAsync` directly should tune `SearchOptions.MinScore` against the RRF scale or leave it at `0.0`. This is the hybrid path only — plain `SearchAsync` issues a pure vector query whose score is a bounded function of the similarity metric, which is why the store is treated as similarity-scaled (see [Score scale](#score-scale-iscorescaleaware)).
 
 ### Metadata filtering
 
-Metadata is stored as a serialised JSON string in the `metadata` field. The filter uses `search.ismatch` to check for key-value substrings within the JSON:
+Filters run against the typed `metadata_entries` complex collection, one `any()` clause per filter pair, AND-composed, with the comparison against the sub-field matching the value's kind:
 
 ```csharp
-// Generates: search.ismatch('"department":"finance"', 'metadata')
+// Generates: metadata_entries/any(m: m/key eq 'department' and m/stringValue eq 'finance')
+//        and metadata_entries/any(m: m/key eq 'page' and m/numberValue eq 3)
 var results = await pipeline.RetrieveAsync("query", new RetrievalOptions
 {
-    MetadataFilter = new Dictionary<string, string>
+    MetadataFilter = new Dictionary<string, MetadataValue>
     {
         ["department"] = "finance",
+        ["page"]       = 3,
     },
 });
 ```
 
-Multiple filter entries are combined with `and`.
+This replaces the previous `search.ismatch` substring probe over the JSON blob with real typed comparisons.
+
+### Migrating an existing index
+
+`InitializeAsync` uses `CreateOrUpdateIndexAsync`, and adding `metadata_entries` is an **additive** field change, so an existing index picks the new field up on the next run without a rebuild. The legacy `metadata` string field stays declared and written — Azure AI Search forbids removing or re-typing an existing field, and keeping it is what lets the update succeed against a pre-existing index.
+
+Two honest caveats for documents ingested **before** the change:
+
+- **Reading them keeps working.** They have no `metadata_entries` rows, so the store falls back to the legacy JSON blob; every value comes back as a string-kind `MetadataValue`. Nothing throws, nothing is lost.
+- **Filtering them stops working until re-ingest.** `MetadataFilter` now runs against `metadata_entries`, and old documents have no rows there to match — under the previous `search.ismatch` filtering they *did* match. Re-ingest the affected documents to make them filterable again.
 
 ### Indexing latency
 
@@ -482,17 +513,17 @@ Dense search maps Weaviate's cosine `distance` (0 = identical … 2 = opposite) 
 
 ### Native hybrid search
 
-When `UseHybridSearch = true`, the pipeline calls `HybridSearchAsync` directly — a single GraphQL `hybrid: {query, vector}` request lets Weaviate fuse BM25 and vector rankings server-side, so a chunk that matches only by keyword is still found. See [Retrieval — Hybrid search](retrieval.md#hybrid-search-bm25--vector).
+When `UseHybridSearch = true` and the call configures nothing the backend cannot express — no sparse (SPLADE) arm would run, no `EnsembleOptions`, `MinScore` left at `0.0` — the pipeline calls `HybridSearchAsync`: a single GraphQL `hybrid: {query, vector}` request lets Weaviate fuse BM25 and vector rankings server-side, so a chunk that matches only by keyword is still found. The returned scores are Weaviate's relative-score-fusion values in `[0, 1]`, not cosine similarities. See [Retrieval — How the hybrid path is selected](retrieval.md#how-the-hybrid-path-is-selected) for the dispatch rule in full.
 
 ### Metadata filtering and auto-schema
 
-Each chunk metadata key is written as an extra `meta_{key}` text property; Weaviate's auto-schema (enabled by default in the official image) adds these properties on first write, making them server-side filterable:
+Each chunk metadata key is written as an extra typed `meta_{key}` property — text for strings, `number` for numbers, `boolean` for booleans; Weaviate's auto-schema (enabled by default in the official image) adds these properties with the matching type on first write, making them server-side filterable with typed `where` operands (`valueText`, `valueNumber`, `valueBoolean`). The `metadata_json` property remains the lossless round-trip authority:
 
 ```csharp
 // Generates: where: {path: ["meta_department"], operator: Equal, valueText: "finance"}
 var results = await pipeline.RetrieveAsync("query", new RetrievalOptions
 {
-    MetadataFilter = new Dictionary<string, string>
+    MetadataFilter = new Dictionary<string, MetadataValue>
     {
         ["department"] = "finance",
     },
@@ -554,13 +585,13 @@ The store **requires the cosine space**. If the configured collection already ex
 
 ### Metadata filtering
 
-Chunk metadata keys are stored as-is on each record and filtered server-side with Chroma's `$eq` operator; multiple filter entries are composed with `$and`:
+Chunk metadata keys are stored as-is on each record with native value types (numbers as numbers, booleans as booleans; dates as a `$date:`-prefixed sentinel string, since record values cannot be objects) and filtered server-side with Chroma's typed `$eq` operator; multiple filter entries are composed with `$and`:
 
 ```csharp
 // Generates: where: {"$and": [{"department": {"$eq": "finance"}}, {"team": {"$eq": "core"}}]}
 var results = await pipeline.RetrieveAsync("query", new RetrievalOptions
 {
-    MetadataFilter = new Dictionary<string, string>
+    MetadataFilter = new Dictionary<string, MetadataValue>
     {
         ["department"] = "finance",
         ["team"]       = "core",
@@ -634,13 +665,13 @@ Set `PineconeOptions.Namespace` to scope every upsert, query, and delete to one 
 
 ### Metadata filtering
 
-Chunk metadata keys are stored as-is on each record and filtered server-side with Pinecone's `$eq` operator; multiple filter entries are composed with `$and`:
+Chunk metadata keys are stored as-is on each record with native value types (numbers as numbers, booleans as booleans; dates as a `$date:`-prefixed sentinel string, since record values cannot be objects) and filtered server-side with Pinecone's typed `$eq` operator; multiple filter entries are composed with `$and`:
 
 ```csharp
 // Generates: filter: {"$and": [{"department": {"$eq": "finance"}}, {"team": {"$eq": "core"}}]}
 var results = await pipeline.RetrieveAsync("query", new RetrievalOptions
 {
-    MetadataFilter = new Dictionary<string, string>
+    MetadataFilter = new Dictionary<string, MetadataValue>
     {
         ["department"] = "finance",
         ["team"]       = "core",
@@ -710,7 +741,7 @@ At least two stores are required (validated at registration). Store factories re
 
 The declaration describes `IVectorStore.SearchAsync` — the interface `IScoreScaleAware` sits on — not any capability method the store also happens to offer. Consumers probe with `store is IScoreScaleAware { ScoreScale: ScoreScale.OpaqueRanking }`. Every other store in the library is unchanged and continues to be treated as similarity-scaled, so `SearchOptions.MinScore` on the retrieval path behaves exactly as before; the probe currently affects persistent conversation memory only.
 
-Azure AI Search was evaluated and deliberately left undeclared (i.e. similarity): its `SearchAsync` issues a pure vector query, whose `@search.score` is a bounded monotone function of the similarity metric and is thresholdable. Its **hybrid** scores (`HybridSearchAsync`) are a different matter — positive and unbounded — but no consumer thresholds them with a fixed cut-off, and `IScoreScaleAware` describes the dense path only.
+Azure AI Search was evaluated and deliberately left undeclared (i.e. similarity): its `SearchAsync` issues a pure vector query, whose `@search.score` is a bounded monotone function of the similarity metric and is thresholdable. Its **hybrid** scores (`HybridSearchAsync`) are a different matter — RRF values around `1/60` per fused query — but `IScoreScaleAware` describes the dense path only, and the pipeline's hybrid dispatch never applies a non-zero `MinScore` to them (a configured `MinScore` keeps the client-side path).
 
 ### Limitations
 

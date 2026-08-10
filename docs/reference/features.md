@@ -51,6 +51,28 @@ Configurable chunking stage driven by user-supplied regex patterns for each head
 
 ---
 
+### Typed Chunk Metadata (Filterable Everywhere, No Per-Key Schema)
+**Packages:** `Rag.NET.Abstractions`, `Rag.NET`, all six vector stores, all data-provider connectors
+
+Metadata values carry their type end to end: `MetadataValue` (string, number, boolean, date) replaces `string` in `FileEntry.Metadata`, `DocumentMetadata.Tags`, `TextChunk.Metadata` and `SearchOptions.MetadataFilter`, and every vector store persists the kind — PgVector as native JSONB types, Qdrant as typed payload values (numbers filter via a closed range), Weaviate as typed auto-schema `meta_*` properties, Chroma and Pinecone as native record values (dates as a `$date:` sentinel), and Azure AI Search as a `metadata_entries` `Collection(Edm.ComplexType)` of `{key, stringValue, numberValue, boolValue, dateValue}` rows — every key filterable with its type, no per-key index schema. A custom data provider can submit a number and filter on it numerically; nothing stringifies it along the way. Backward compatibility: metadata stored before the change reads back losslessly as string-kind values; on Azure AI Search an existing index gains `metadata_entries` additively via `CreateOrUpdateIndexAsync` (no rebuild), but pre-existing documents have no typed rows and stop matching `MetadataFilter` until re-ingested — reads fall back to the legacy JSON blob.
+
+**Why:** `page eq 3` and `page gt 3` need a real number in the index; `IDictionary<string, string>` guaranteed everything arrived as text (#91). Typing only one link of the chain would just move the stringification, so the whole chain changed at once, before anything ships on nuget.org.
+
+**Status:** ✅ Done
+
+---
+
+### Page-Attributed Chunks (Source-Page Citation)
+**Packages:** `Rag.NET.Abstractions`, `Rag.NET`, `Rag.NET.Chunking`, `Rag.NET.Chunking.CSharp`, `Rag.NET.Chunking.Templates`, `Rag.NET.Parsers.Vision`
+
+The reserved `page`/`page_end` metadata pair (always written together, as numbers) carries the source-page range from `DocumentSection.PageNumber` through every chunking strategy: per-section strategies stamp both with the section's page, merging strategies (hierarchical merger and its templates, semantic document-level grouping, proposition passages) report min/max across the contributing sections and keep the pages present when a run mixes paginated and unpaginated sections. Absent — not null — for unpaginated formats and where the origin page is unknowable (LLM-rewritten resume fields; video timestamps stay `timestamp_seconds`). Riding on typed metadata (above), the pair is numerically filterable in all six stores with no per-store schema; chunks stored before the keys existed read back without them until re-ingested.
+
+**Why:** For reference checking, "which page did this answer come from" is the difference between a citation a human can verify and a chunk index they cannot (issue #82). PdfPig already supplied the page number; it previously died at the chunking boundary.
+
+**Status:** ✅ Done
+
+---
+
 ### Multi-Language Code Splitting (Heuristic)
 **Package:** `Rag.NET.Chunking`
 
@@ -83,10 +105,34 @@ Pre-built chunking templates for common vertical document types:
 - **Legal Documents** — detect numbered clause hierarchy, merge sub-clauses under parent article
 - **Q&A Pairs** — ingest CSV/Excel rows as question (chunk) + answer (payload) pairs
 - **Books** — hierarchical merge with table-of-contents removal
-- **Email** — parse `.eml` including attachments, recursively chunk body + attachments
+- **Email** — chunk header/body/attachment sections; `EmailChunkingOptions.IncludeHeaders` and `.IncludeAttachments` (both default `true`) skip the `headers` and `attachment:*` sections entirely when disabled
 - **Resumes** — parallel LLM extraction of basic info, work history, and education sections
 
 **Why:** Domain templates dramatically reduce noise. Legal documents chunked generically lose clause hierarchy; academic papers mix references into the body. Pre-built templates serve vertical markets out of the box.
+
+> **Breaking change (Phase 4.2) — `UseEmailChunking()` no longer registers a parser.** It used to
+> bundle its own `EmailTemplateDocumentParser`, which duplicated `Rag.NET.Parsers.Email`'s
+> `EmailDocumentParser` (see [Email File Parser](#email-file-parser-eml--msg) below) — both claimed
+> `message/rfc822`, which was a startup error the moment both packages were registered together.
+> The duplicate is retired outright rather than resolved: `.eml` ingestion alongside this chunking
+> strategy now needs `Rag.NET.Parsers.Email` added separately (`AddEmailParser()`). The chunking
+> strategy itself is unaffected either way — it consumes `DocumentSection`s and does not care which
+> parser produced them.
+>
+> **Enabling QA-pairs chunking makes plain CSVs (and Excel workbooks, if `Rag.NET.Parsers.Office`
+> is installed) parse as QA pairs.** `UseQAPairsChunking()` registers `QAPairsDocumentParser` via
+> `AddParser<QAPairsDocumentParser>(replacesTypeNames: [...])`, declaring a deliberate override
+> against core's `CsvDocumentParser` (`text/csv`) and, by type name so this package takes no
+> compile-time dependency on the optional one, `Rag.NET.Parsers.Office`'s `ExcelDocumentParser`
+> (`…spreadsheetml.sheet`). That is the override doing its job, not a bug: a caller who asked for
+> QA-pairs chunking wants that parser to win, and `AddParser<TParser>(replaces:)` removes the
+> replaced parser's registration rather than merely silencing the conflict, so the override
+> actually wins parser selection instead of losing to whichever built-in registered first. It is
+> also the *opposite* of the previous default, where the collision was undetected and core's
+> `CsvDocumentParser` silently won every time — see [Parsers — content-type ownership and the
+> claim model](../guide/ingestion.md#content-type-ownership-and-the-claim-model). Pass
+> `registerParser: false` to `UseQAPairsChunking()` to take the chunking strategy without the
+> parser or its override.
 
 ---
 
@@ -117,7 +163,7 @@ Maintain a "tag knowledge base" of content-tag pairs. At query time, match the u
 ### Time-Weighted Retrieval
 **Package:** `Rag.NET` (core)
 
-Combine semantic similarity score with a recency decay factor. Fresher documents receive a score boost, older ones decay. Configurable decay rate. Valuable for knowledge bases where recency matters (support docs, regulatory updates, news).
+Combine semantic similarity score with a recency decay factor. Fresher documents keep their original score, older ones decay toward zero. Configurable decay rate (`DecayRate`, zero or positive). Valuable for knowledge bases where recency matters (support docs, regulatory updates, news).
 
 **Why:** Pure semantic similarity ignores document age entirely.
 
@@ -161,13 +207,13 @@ Combine results from multiple retrievers (e.g., BM25 + dense vector) using Recip
 
 **Why:** RRF consistently outperforms individual retrievers by combining rank signals.
 
-**Status:** ✅ Done
+**Status:** ✅ Done. `EnsembleBehavior` fuses dense/BM25/(sparse) arms client-side with weighted RRF. Since native-hybrid dispatch landed, a store implementing `IHybridSearchable` (Azure AI Search, Weaviate) serves the hybrid call server-side instead **when nothing native fusion cannot express is configured** — supplying `EnsembleOptions`, a non-zero `MinScore`, or an active sparse arm keeps the client-side ensemble. The chosen path is observable via the `retrieval.hybrid.path` activity tag.
 
 ---
 
 ### RAPTOR — Recursive Abstractive Tree Summarization
 **Status:** ✅ Done
-**Package:** `Rag.NET` (core)
+**Package:** `Rag.NET.Raptor`
 
 Embed chunks, dimensionality-reduce with UMAP, soft-cluster with a Gaussian Mixture Model (BIC selects optimal cluster count), then LLM-summarize each cluster into a new higher-level chunk. Recurse until one cluster remains, building a full summary tree. Store all intermediate summary chunks alongside originals; all levels participate in retrieval simultaneously.
 
@@ -178,7 +224,7 @@ Embed chunks, dimensionality-reduce with UMAP, soft-cluster with a Gaussian Mixt
 ### Deep Research Loop (Sufficiency-Gated Sub-Query Decomposition)
 **Package:** `Rag.NET` (core)
 
-After initial retrieval, use an LLM to judge whether the retrieved information is sufficient. If not, generate follow-up sub-queries and explore them recursively to a configurable depth. Merge and deduplicate results across all branches. Optional: integrate live web search in the same loop.
+After initial retrieval, use an LLM to judge whether the retrieved information is sufficient. If not, generate follow-up sub-queries (`SubQueryCount`, greater than 0) and explore them recursively to a configurable depth (`MaxDepth`, greater than 0). Merge and deduplicate results across all branches.
 
 **Why:** Answers complex questions that require discovering what is missing and forming follow-up questions — moves Rag.NET from single-pass retrieval toward autonomous research capability.
 
@@ -956,13 +1002,28 @@ Chunk-batch embedding inside a single document: `EmbeddingBehavior` slices pendi
 ### Rag.NET CLI Tool
 **Package:** `Rag.NET.Cli` (dotnet tool)
 
-A `dotnet tool` (`ragnet`) providing:
-- `ragnet ingest <path> --store pgvector --connection <cs>` — ingest a folder
-- `ragnet ask "<question>"` — interactive query
-- `ragnet eval <dataset.json>` — run RAGAS metrics against a dataset
-- `ragnet reindex --stale` — re-embed documents with outdated embedding model versions
+A `dotnet tool` (`ragnet`) running against a pipeline configured the same way as
+`Rag.NET.Mcp.Tool` — `Rag.NET.Hosting`'s `AddRagNetPipelineFromConfiguration`, reading the
+`RagNet` section of `appsettings.json` or environment variables. See the [MCP server
+guide](../guide/mcp.mdx)'s Pattern D for the configuration shape (chat client, embeddings,
+vector store kind), the startup validation, and the `InMemory` warning — they are identical
+here.
 
-**Why:** The library is code-first, but operations tasks (ad-hoc ingestion, health checks, re-indexing) are painful to script. A CLI tool makes these accessible without writing a custom harness.
+- `ragnet ingest <path> [--overwrite]` — ingest a single file, or every file under a directory
+  (recursively)
+- `ragnet query "<question>" [--top-k N]` — retrieve the chunks a question matches
+
+Output is JSON on stdout, one object per invocation, meant to be piped onward; diagnostics,
+warnings, and errors go to stderr.
+
+`ragnet evaluate` is **not implemented**. `Rag.NET.Evaluation`'s evaluators
+(`EmbeddingDistanceEvaluator`, `LlmJudgeEvaluator`) score `EvaluationSample` instances that
+already carry a *predicted* answer, and no dataset file format exists anywhere in this
+repository to read a set of question/reference pairs from — wiring a working command needs that
+format designed first, not a thin call onto an existing seam the way `ingest`/`query` are.
+Running `ragnet evaluate` prints this reason to stderr and exits non-zero.
+
+**Why:** The library is code-first, but operations tasks (ad-hoc ingestion, retrieval checks) are painful to script. A CLI tool makes these accessible without writing a custom harness.
 
 ---
 
@@ -1145,7 +1206,7 @@ Curated, runnable sample projects demonstrating real-world Rag.NET usage:
 | [x] | Rate Limiting & Cost Budgeting | Medium | Token bucket |
 | [x] | Batch Ingestion Optimiser | Medium | `Parallel.ForEachAsync` |
 | [ ] | Sample Applications | Medium | All packages |
-| [ ] | Rag.NET CLI Tool | Medium | `dotnet tool` |
+| [x] | Rag.NET CLI Tool | Medium | `dotnet tool` (`ingest`/`query`; `evaluate` deferred — no dataset file format exists yet) |
 | [x] | Pipeline Debugger / Trace Viewer | Medium | `ActivityListener` + ring buffer; endpoint in `Rag.NET.Diagnostics.AspNetCore` |
 | [x] | Adaptive Retrieval (Query Routing) | High | `IChatClient` + classifier |
 | [x] | FLARE | High | `IChatClient` (self-assessment scorer; logprob scorer = extension point) |

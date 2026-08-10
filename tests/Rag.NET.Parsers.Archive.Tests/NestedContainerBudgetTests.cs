@@ -46,7 +46,7 @@ public class NestedContainerBudgetTests
         DocumentId = new DocumentId("nested-1"),
         FileName = "outer.zip",
         ContentType = "application/zip",
-        Tags = new Dictionary<string, string>(StringComparer.Ordinal),
+        Tags = new Dictionary<string, MetadataValue>(StringComparer.Ordinal),
     };
 
     /// <summary>
@@ -122,7 +122,7 @@ public class NestedContainerBudgetTests
         // "top" is the document's own marker; the two below it are the nested containers the bound
         // admits. The fourth level exists in the fixture and is never reached.
         Assert.Equal(["top", "depth-1", "depth-2"], alternating);
-        Assert.DoesNotContain("depth-3", alternating);
+        Assert.DoesNotContain("depth-3", alternating, StringComparer.Ordinal);
         Assert.Equal(uniform, alternating);
         Assert.Contains(harness.Warnings, w => w.Contains("nesting depth", StringComparison.Ordinal));
     }
@@ -261,7 +261,7 @@ public class NestedContainerBudgetTests
         DocumentId = new DocumentId("carrier-1"),
         FileName = "carrier.eml",
         ContentType = "message/rfc822",
-        Tags = new Dictionary<string, string>(StringComparer.Ordinal),
+        Tags = new Dictionary<string, MetadataValue>(StringComparer.Ordinal),
     };
 
     /// <summary>

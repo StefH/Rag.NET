@@ -26,18 +26,8 @@ public sealed class PipelineRetriever : IRetriever
         RetrievalOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        if (options is not null)
-        {
-            if (options.TopK <= 0)
-                return Result<IReadOnlyList<SearchResult>, RagError>.Failure(
-                    new RagError.ValidationFailed([new Models.ValidationFailure("TopK", "TopK must be greater than 0.")]));
-            if (options.RedundancyThreshold < 0.0f || options.RedundancyThreshold > 1.0f)
-                return Result<IReadOnlyList<SearchResult>, RagError>.Failure(
-                    new RagError.ValidationFailed([new Models.ValidationFailure("RedundancyThreshold", "RedundancyThreshold must be between 0.0 and 1.0.")]));
-            if (options.MmrLambda < 0.0f || options.MmrLambda > 1.0f)
-                return Result<IReadOnlyList<SearchResult>, RagError>.Failure(
-                    new RagError.ValidationFailed([new Models.ValidationFailure("MmrLambda", "MmrLambda must be between 0.0 and 1.0.")]));
-        }
+        if (options is not null && Validate(options) is { } invalid)
+            return Result<IReadOnlyList<SearchResult>, RagError>.Failure(invalid);
 
         var resolvedOptions = options ?? new RetrievalOptions();
         var ctx = new RetrievalContext
@@ -75,6 +65,38 @@ public sealed class PipelineRetriever : IRetriever
             sw.Stop();
             RagTelemetry.RetrieveDuration.Record(sw.Elapsed.TotalMilliseconds);
         }
+    }
+
+    /// <summary>
+    /// The generated validator for per-call options, with its nested
+    /// <c>EnsembleOptionsValidator</c>; both are stateless, so one instance serves every call.
+    /// This replaced a hand-written check block that early-returned on the first failure — the
+    /// generated validator reports every failure at once, and covers the properties the manual
+    /// block never remembered to (the candidate counts and <c>MinScore</c>, issue #94).
+    /// </summary>
+    private static readonly RetrievalOptionsValidator OptionsValidator =
+        new RetrievalOptionsValidator(new EnsembleOptionsValidator());
+
+    /// <summary>
+    /// Rejects per-call options that violate the constraints declared on
+    /// <see cref="RetrievalOptions"/> and <see cref="EnsembleOptions"/>, so a bad value fails
+    /// loudly here instead of silently skewing a pipeline stage. Failures are mapped into
+    /// <see cref="Models.ValidationFailure"/> the same way <c>PipelineIngestor.MapFailures</c>
+    /// does: the span hoisted into a local, then an indexed loop into an array —
+    /// <c>ValidationFailure</c> is a non-readonly struct, so enumerating the span by value
+    /// trips EPS06 and indexing the property result directly trips HLQ013.
+    /// </summary>
+    private static RagError? Validate(RetrievalOptions options)
+    {
+        var result = OptionsValidator.Validate(options);
+        if (result.IsValid)
+            return null;
+
+        var failures = result.Failures;
+        var mapped = new Models.ValidationFailure[failures.Length];
+        for (var i = 0; i < failures.Length; i++)
+            mapped[i] = new Models.ValidationFailure(failures[i].PropertyName, failures[i].ErrorMessage);
+        return new RagError.ValidationFailed(mapped);
     }
 
     /// <summary>

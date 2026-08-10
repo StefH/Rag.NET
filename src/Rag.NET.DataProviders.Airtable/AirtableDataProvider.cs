@@ -18,8 +18,12 @@ namespace Rag.NET.DataProviders.Airtable;
 /// because Airtable attachment URLs are signed and expire.
 /// </para>
 /// <para>
-/// Delta support uses <c>LAST_MODIFIED_TIME()&gt;'{DeltaToken}'</c> when
-/// <see cref="AirtableOptions.LastModifiedFieldName"/> is set.
+/// Delta support uses <c>LAST_MODIFIED_TIME({LastModifiedFieldName})&gt;'{DeltaToken}'</c> when
+/// <see cref="AirtableOptions.LastModifiedFieldName"/> and
+/// <see cref="CloudStorageOptions.DeltaToken"/> are both set, so the filter tracks the named
+/// field rather than the record's most recent change to any field. Both values are validated at
+/// construction: braces in the field name and quotes (or other non-timestamp characters) in the
+/// delta token have no escape within an Airtable formula, so they are rejected instead.
 /// </para>
 /// <para>
 /// Phase 4.10 Task 5: <c>AirtableRecord.CreatedTime</c> — auto-populated by Airtable for every
@@ -31,7 +35,7 @@ namespace Rag.NET.DataProviders.Airtable;
 /// record does.
 /// </para>
 /// </summary>
-public sealed class AirtableDataProvider : FileContentProviderBase
+public sealed partial class AirtableDataProvider : FileContentProviderBase
 {
     private readonly IAirtableClient _client;
     private readonly HttpClient _http;
@@ -42,10 +46,30 @@ public sealed class AirtableDataProvider : FileContentProviderBase
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(http);
+        if (options.LastModifiedFieldName is { } field &&
+            (field.Contains('{', StringComparison.Ordinal) || field.Contains('}', StringComparison.Ordinal)))
+            throw new ArgumentException(
+                $"LastModifiedFieldName contains braces, which cannot be escaped inside an " +
+                $"Airtable formula field reference: '{field}'.", nameof(options));
+        if (options is { LastModifiedFieldName: not null, DeltaToken: { } token } &&
+            !DeltaTokenRegex().IsMatch(token))
+            throw new ArgumentException(
+                $"DeltaToken contains characters invalid in an Airtable formula timestamp " +
+                $"literal: '{token}'.", nameof(options));
         _client  = client;
         _http    = http;
         _options = options;
     }
+
+    /// <summary>
+    /// The characters an ISO-8601 timestamp can contain — the same shape
+    /// <c>ConfluenceDataProvider</c> enforces on its delta token. Anything else (a quote, a
+    /// brace, an operator) would splice into the filter formula rather than compare against it.
+    /// </summary>
+    [System.Text.RegularExpressions.GeneratedRegex(
+        @"^[A-Za-z0-9:\-\.TZ\+ ]+$",
+        System.Text.RegularExpressions.RegexOptions.NonBacktracking)]
+    private static partial System.Text.RegularExpressions.Regex DeltaTokenRegex();
 
     /// <inheritdoc />
     protected override IAsyncEnumerable<Result<FileHandle, RagError>> GetFileHandlesAsync(
@@ -98,8 +122,11 @@ public sealed class AirtableDataProvider : FileContentProviderBase
         if (_options.LastModifiedFieldName is null || _options.DeltaToken is null)
             return null;
 
-        // Airtable formula: LAST_MODIFIED_TIME()>'2026-03-01T00:00:00.000Z'
-        return $"LAST_MODIFIED_TIME()>'{_options.DeltaToken}'";
+        // Airtable formula: LAST_MODIFIED_TIME({Modified})>'2026-03-01T00:00:00.000Z' — the
+        // field reference scopes the filter to the configured field (an argument-less
+        // LAST_MODIFIED_TIME() tracks every field, which is what issue #108 found shipping).
+        // Both interpolated values are validated in the constructor.
+        return $"LAST_MODIFIED_TIME({{{_options.LastModifiedFieldName}}})>'{_options.DeltaToken}'";
     }
 
     // Instance rather than static so the base and table the record came from — the container
@@ -124,9 +151,9 @@ public sealed class AirtableDataProvider : FileContentProviderBase
     /// The record's container context. Built synchronously (never inside the async iterator)
     /// and returned as <see langword="null"/> when there is nothing to say.
     /// </summary>
-    private Dictionary<string, string>? BuildRecordMetadata(string? recordId)
+    private Dictionary<string, MetadataValue>? BuildRecordMetadata(string? recordId)
     {
-        var metadata = new Dictionary<string, string>(StringComparer.Ordinal);
+        var metadata = new Dictionary<string, MetadataValue>(StringComparer.Ordinal);
         if (!string.IsNullOrEmpty(_options.BaseId))    metadata["base_id"]   = _options.BaseId;
         if (!string.IsNullOrEmpty(_options.TableName)) metadata["table"]     = _options.TableName;
         if (!string.IsNullOrEmpty(recordId))           metadata["record_id"] = recordId;
@@ -165,11 +192,11 @@ public sealed class AirtableDataProvider : FileContentProviderBase
     /// An attachment carries its parent record's container context plus the field it hangs off
     /// and the Airtable attachment id, so a chunk can be traced back to the exact cell.
     /// </summary>
-    private Dictionary<string, string>? BuildAttachmentMetadata(
+    private Dictionary<string, MetadataValue>? BuildAttachmentMetadata(
         string? recordId, string fieldName, string? attachmentId)
     {
         var metadata = BuildRecordMetadata(recordId)
-            ?? new Dictionary<string, string>(StringComparer.Ordinal);
+            ?? new Dictionary<string, MetadataValue>(StringComparer.Ordinal);
         if (!string.IsNullOrEmpty(fieldName))     metadata["field"]         = fieldName;
         if (!string.IsNullOrEmpty(attachmentId))  metadata["attachment_id"] = attachmentId;
         return metadata.Count == 0 ? null : metadata;

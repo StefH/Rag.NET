@@ -42,16 +42,15 @@ Two packages:
 
 **Local Search** (default) — For specific factual questions:
 1. Find entities matching the query via vector similarity
-2. Traverse graph neighbors (configurable depth)
-3. Collect: entities + relationships + community reports
-4. Score: blend vector similarity with PageRank importance
+2. Traverse graph neighbors (configurable depth), collecting their PageRank scores
+3. Score: blend vector similarity with PageRank importance
 
 **Global Search** — For broad thematic questions:
 1. Collect all community reports
 2. Map: LLM answers the query per batch of reports
 3. Reduce: LLM combines partial answers into a final response
 
-**Auto Mode** — LLM classifies the query and routes to Local or Global automatically.
+**Which search runs is decided by the behaviors you register**, not by a setting. Add `GraphLocalSearchBehavior`, `GraphGlobalSearchBehavior`, or both; each runs on the chunks it recognises.
 
 ## Quick Start
 
@@ -63,7 +62,7 @@ Two packages:
 services.AddRagNet(
     configure: rag => rag.UseGraphRag(
         options => { options.GleaningPasses = 1; },
-        retrieval: options => { options.Mode = GraphRagRetrievalMode.Local; },
+        retrieval: options => { options.LocalSearchDepth = 1; },
         graph: store => store.UseSqlite("graphrag.db")),
     ingestion: p => p
         .Add<GraphEntityExtractionBehavior>(after: typeof(EmbeddingBehavior))
@@ -81,28 +80,35 @@ services.AddRagNet(
 rag.UseGraphRag(options =>
 {
     options.Enabled = true;                          // Toggle on/off
-    options.GleaningPasses = 1;                      // Follow-up extraction passes
-    options.EntityTypes = ["Person", "Organization"]; // Constrain types (null = open)
-    options.RelationshipTypes = null;                 // Constrain relationship types
-    options.MaxEntityDescriptionLength = 500;         // Summarization threshold
+    options.GleaningPasses = 1;                      // Follow-up extraction passes (0 = skip)
+    options.EntityTypes = ["Person", "Organization"]; // Constrain entity types (null = open)
+    options.RelationshipTypes = null;                 // Constrain relationship kinds (null = open)
+    options.MaxEntityDescriptionLength = 500;         // Summarization threshold — must be greater than 0
     options.ExtractionChatClient = cheapModel;        // Optional cheaper model
     options.SummarizationChatClient = cheapModel;     // Optional for reports
 });
 ```
+
+`UseGraphRag` validates the configured options at registration and throws `ArgumentException` from the configuring line. A negative `MaxEntityDescriptionLength` would throw mid-ingestion on the first extracted entity; zero would silently empty every entity description.
+
+`EntityTypes` and `RelationshipTypes` are enforced in two layers. The allowed lists are substituted into the extraction prompt's `{entity_types}` and `{relationship_types}` placeholders (when they are null the placeholders render the open-extraction guidance instead), and anything the LLM still returns outside a configured list is dropped — case-insensitively — before it reaches the graph store or the embedded chunks, including gleaning-pass output. A custom `EntityExtractionPrompt` without the placeholders still gets the filtering layer, so the constraint holds regardless of prompt. Relationships carry their kind in the `description` field (a concise verb phrase), so `RelationshipTypes` constrains that field. An empty array behaves like null rather than silently dropping every extraction.
 
 ### Retrieval Options
 
 ```csharp
 rag.UseGraphRag(retrieval: options =>
 {
-    options.Mode = GraphRagRetrievalMode.Local;  // Local / Global / Auto
-    options.LocalSearchDepth = 1;                 // Hop depth
-    options.LocalTopEntities = 10;                // Starting entities
-    options.PageRankWeight = 0.3;                 // PageRank vs similarity blend
-    options.GlobalBatchSize = 5;                  // Reports per map batch
+    options.LocalSearchDepth = 1;                 // Hop depth — must be greater than 0
+    options.LocalTopEntities = 10;                // Starting entities — must be greater than 0
+    options.PageRankWeight = 0.3;                 // PageRank vs similarity blend — range 0.0–1.0, finite
+    options.GlobalBatchSize = 5;                  // Reports per map batch — when set, must be greater than 0
     options.GlobalChatClient = cheapModel;         // Optional for map-reduce
 });
 ```
+
+These are validated at registration too. `LocalSearchDepth` or `LocalTopEntities` at zero would silently disable local graph search; a `PageRankWeight` outside `[0, 1]` would give one blend term a negative coefficient; `GlobalBatchSize = 0` would hang global search in an infinite batching loop.
+
+> **Which search runs is a registration decision, not a setting.** Add `GraphLocalSearchBehavior`, `GraphGlobalSearchBehavior`, or both to the retrieval pipeline; each runs on the chunks it recognises. There is deliberately no `Mode` property — one existed until 0.1.0, was never read by any behavior, and is described in issue #104.
 
 ### Graph Store
 
@@ -120,26 +126,24 @@ rag.UseGraphRag(graph: store =>
 Best for: "What companies did John Smith work for?" or "How is React related to Next.js?"
 
 The behavior:
-1. Embeds the query and finds matching entity chunks in the vector store
-2. Takes the top-K entities (configurable via `LocalTopEntities`)
-3. Traverses the graph to find neighbors within `LocalSearchDepth` hops
-4. Collects all related entities, relationships, and community reports
-5. Blends scores: `(1 - PageRankWeight) * similarity + PageRankWeight * pageRank`
+1. Takes the top-K entity chunks the vector store already matched (configurable via `LocalTopEntities`)
+2. Traverses the graph to find neighbors within `LocalSearchDepth` hops, collecting their PageRank scores
+3. Blends entity scores: `(1 - PageRankWeight) * similarity + PageRankWeight * pageRank`
 
 ### Global Search
 
 Best for: "What are the main themes in this document?" or "Summarize the key findings"
 
 The behavior:
-1. Collects all community report chunks from the vector store
-2. Shuffles and batches them
+1. Partitions the retrieved results, taking every community report chunk
+2. Shuffles and batches them (`GlobalBatchSize` reports per batch)
 3. Map phase: LLM answers the query for each batch
 4. Reduce phase: LLM combines all partial answers
-5. Returns a single synthesized answer
+5. Prepends the single synthesized answer to the remaining results
 
-### Auto Mode
+### Automatic routing
 
-An LLM classifies the query as "specific/factual" (-> Local) or "broad/thematic" (-> Global) before routing.
+Not implemented, and not declared. Routing a query to Local or Global by classifying it as specific/factual versus broad/thematic is a real feature and a real cost — an extra LLM call per query — so it will arrive as one, with a benchmark behind it, rather than as an enum member that does nothing. Register the behaviors you want in the meantime.
 
 ## Cost and Performance
 

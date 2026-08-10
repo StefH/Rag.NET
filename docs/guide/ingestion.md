@@ -39,8 +39,8 @@ public sealed record DocumentMetadata
     public required string DocumentId { get; init; }
     public required string FileName   { get; init; }
     public string? ContentType        { get; init; }
-    public IDictionary<string, string> Tags { get; init; }
-        = new Dictionary<string, string>(StringComparer.Ordinal);
+    public IDictionary<string, MetadataValue> Tags { get; init; }
+        = new Dictionary<string, MetadataValue>(StringComparer.Ordinal);
 }
 ```
 
@@ -57,7 +57,7 @@ var metadata = new DocumentMetadata
     DocumentId  = "policy-hr-001",
     FileName    = "hr-policy.docx",
     ContentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    Tags = new Dictionary<string, string>
+    Tags = new Dictionary<string, MetadataValue>
     {
         ["category"] = "hr",
         ["version"]  = "2024-01",
@@ -71,6 +71,26 @@ After ingestion, every `TextChunk.Metadata` for this document will contain:
 - `"category"` → `"hr"`
 - `"version"` → `"2024-01"`
 - Plus any heading metadata injected by the parser (see below)
+
+### Typed metadata values
+
+Metadata values are `MetadataValue`, a small discriminated value carrying one of four kinds — **string**, **number** (a `double`; `int`/`long` convert exactly up to 2^53), **boolean**, or **date** (`DateTimeOffset`, compared and stored by UTC instant). Implicit conversions exist *from* each carried type, so plain-string write sites keep their shape, and a number written as a number stays a number all the way into the vector store — filterable numerically, not as the text `"3"`:
+
+```csharp
+Tags = new Dictionary<string, MetadataValue>
+{
+    ["category"]    = "hr",              // string
+    ["page_count"]  = 42,                // number
+    ["confidential"] = true,             // boolean
+    ["approved_at"] = DateTimeOffset.UtcNow, // date
+},
+```
+
+There is deliberately **no** implicit conversion back to `string` — that would silently stringify numbers at read sites, which is exactly the bug the typed value removes. Read through `Kind` and the kind-checked accessors (`StringValue`, `NumberValue`, `BooleanValue`, `DateTimeOffsetValue`), or `ToString()` for a lossless textual form of any kind.
+
+The typing runs the whole chain: a data-provider connector's `FileEntry.Metadata`, `DocumentMetadata.Tags`, `TextChunk.Metadata`, `SearchOptions.MetadataFilter`, and each store's persisted representation (see [Vector stores](vector-stores.md#typed-metadata)). Values stored before metadata carried types read back losslessly as string-kind values.
+
+Chunk-level values win: `MetadataBehavior` applies document tags to chunks with `TryAdd`, so a key a chunking strategy already set is never clobbered by a document tag.
 
 ## `IngestionOptions`
 
@@ -171,6 +191,74 @@ To register your own parser implementation directly:
 services.AddRagNet(rag => rag
     .AddParser<MyXmlParser>());
 ```
+
+### Content-type ownership and the claim model
+
+Two parsers can end up claiming the same content type — a package you added and a built-in, or two
+packages you added deliberately. `AddRagNet` detects that **before anything is resolved**: a
+registration that declares a `ParserClaim` for a content type another declared claimant already
+holds is an `InvalidOperationException` at startup, naming both parsers, both registration calls,
+and (when one exists) a way out — never silent content loss at ingestion time.
+
+**Not every parser declares a claim, and that is by design, not a gap.** `CanParse` is a predicate,
+not an enumeration — nothing can discover what an arbitrary parser accepts without probing it
+against a guessed list of content types, which is worse than an undetected collision. A parser can
+opt in to being seen by implementing `IDeclaresContentTypes` alongside `IDocumentParser`:
+
+```csharp
+public sealed class MyXmlParser : IDocumentParser, IDeclaresContentTypes
+{
+    public static IReadOnlyCollection<string> ContentTypes { get; } =
+        ["application/xml", "text/xml"];
+
+    public bool CanParse(string contentType) =>
+        ContentTypes.Contains(contentType, StringComparer.OrdinalIgnoreCase);
+
+    // ParseAsync(...) as usual
+}
+```
+
+When `TParser` implements `IDeclaresContentTypes`, `AddParser<TParser>()` declares one
+`ParserClaim` per reported type automatically. A parser that implements only `IDocumentParser` —
+most of the parsers this library ships, and any custom parser that does not opt in — declares
+nothing and stays invisible to the guard, exactly as before this interface existed; nothing about
+it needs to change to keep working.
+
+**A deliberate override is expressed with `AddParser<TParser>(replaces:, replacesTypeNames:)`,**
+which is different from silencing the conflict — it **removes** the replaced parser's
+`IDocumentParser` registration and its claim together:
+
+```csharp
+services.AddRagNet(rag => rag
+    .AddParser<MyCsvParser>(replaces: typeof(CsvDocumentParser)));
+```
+
+Removal, not just silencing, is load-bearing: parser selection takes the *first* registered parser
+whose `CanParse` matches, and built-in parsers register before your `configure` delegate runs. An
+override that only suppressed the conflict check would still lose selection to the parser it was
+supposed to replace. `replaces` matches by full type name, so replacing a parser you cannot
+reference at compile time — one from an optional package that may not even be installed — use
+`replacesTypeNames` instead:
+
+```csharp
+services.AddRagNet(rag => rag
+    .AddParser<MyExcelParser>(replacesTypeNames: ["Rag.NET.Parsers.Excel.ExcelDocumentParser"]));
+```
+
+A name (or type) that matches nothing currently registered removes nothing and is **not** an
+error — replacing a parser from a package you never installed is a no-op, which is exactly what an
+optional dependency needs. `Rag.NET.Chunking.Templates`'s `UseQAPairsChunking()` uses this to
+declare `QAPairsDocumentParser` as a deliberate override of core's `CsvDocumentParser` and, when
+`Rag.NET.Parsers.Office` is installed, its `ExcelDocumentParser` — see [Domain-Specific Chunking
+Templates](../reference/features.md#domain-specific-chunking-templates) for the resulting
+behaviour change.
+
+**One current limit, worth knowing before you reach for it:** `replaces`/`replacesTypeNames` can
+only remove a parser registered by concrete type (`AddParser<T>()`, or a `[Singleton]`-attributed
+built-in). A parser registered through a factory lambda —
+`services.AddSingleton<IDocumentParser>(sp => new MyParser(...))`, the pattern
+`Rag.NET.Parsers.Vision`, `.Email` and `.Archive` all use — cannot be named this way; naming one is
+a silent no-op indistinguishable from naming a package that was never installed.
 
 ### PDF: table extraction and OCR
 
@@ -448,6 +536,30 @@ The breadcrumb is built by concatenating all ancestor headings in order, separat
 
 These metadata keys can be used for [metadata filtering](retrieval.md#metadata-filtering).
 
+### Page attribution
+
+When `PageNumber` is set (the PDF parser reads it from PdfPig's page number on every path —
+plain text, per-page OCR fallback, and document-level OCR — and the PowerPoint parser sets it
+to the slide number), every chunking strategy copies it onto the chunks it produces as the
+reserved `page` / `page_end` metadata pair, written as **numbers**, so a retrieved chunk can be
+cited back to its source page and filtered numerically:
+
+- A chunk that sits entirely on page 3 has `page: 3, page_end: 3` — the keys are always
+  written together, so consumers can render a range without probing for a missing half.
+- A chunk merged from sections spanning pages 3–4 (hierarchical merging, semantic
+  document-level grouping, proposition passages) has `page: 3, page_end: 4` — the min/max of
+  the contributing sections' page numbers.
+- A merged run that mixes paginated and unpaginated sections keeps the pages that are present:
+  a chunk touching page 3 and an unpaginated section is still findable on page 3.
+- Both keys are **absent** (not null-valued) for non-paginated formats (Markdown, HTML, plain
+  text, …) and for chunks whose origin page is unknowable (LLM-rewritten resume fields; video
+  "pages" are scene timestamps and stay in `timestamp_seconds`).
+
+`page` and `page_end` are [reserved metadata keys](data-providers.md#the-convention): the
+framework writes them, and a connector emitting either from entry metadata is rejected with
+`ReservedMetadataKeyException`. Chunks stored before the keys existed read back without them
+until re-ingested.
+
 ## Progress reporting
 
 Pass any `IProgress<IngestionProgress>` to receive stage-completion callbacks:
@@ -496,7 +608,7 @@ public sealed record IngestionResult
 
 ## Performance notes
 
-See [benchmarks](benchmarks.md) for detailed measurements. Key takeaways:
+See [benchmarks](../reference/benchmarks.md) for detailed measurements. Key takeaways:
 
 - Parsing and chunking of a 50 KB document completes in under 400 µs (mocked embedder).
 - Real ingestion time is dominated by the embedding API call, typically 50–500 ms per batch.

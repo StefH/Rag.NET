@@ -1,4 +1,4 @@
-# Project Roadmap
+﻿# Project Roadmap
 
 Backlog source: the unchecked items in `docs/reference/features.md` (31 items as of 2026-07-24).
 Every backlog item is assigned to exactly one phase below. When a phase completes, tick the
@@ -54,25 +54,6 @@ future reader can tell the difference between "never existed" and "dealt with".
   **Phase 4.3** as the owning slot** (assigned 2026-08-02 by the Milestone 4 replan's §5,
   replacing the bare milestone-as-deadline; the fix is small and local — a sealed hierarchy or a
   private constructor with two factory methods — so it needs a slot, not a phase of its own)
-- **No supported way to replace a built-in parser** (found while fixing the Phase 3.11 review's first
-  finding): `AddRagNETServices()` registers `TextDocumentParser` and `MarkdownDocumentParser` before
-  `configure?.Invoke(builder)` runs, so a user's own `text/plain` parser is always behind them in the
-  first-match dispatch and never wins. 3.11 made that **loud** — the conflict guard now declares
-  claims for both built-ins, so a user who declares `text/plain` gets a startup error. It did not
-  make it **resolvable**: the error names `AddRagNet()` as the other claimant, and that is not a call
-  anyone can remove.
-  The perverse incentive is the part worth recording. Declaring your claim honestly gets you
-  rejected; declaring nothing gets you the old silent failure, since `AddParser<T>()` alone still
-  registers and still loses. No capability was lost — undeclared, a user lands exactly where they
-  were before 3.11 — but the guard now points at a problem it offers no way out of.
-  The missing feature is parser *replacement*, not another opt-out: something like
-  `AddParser<T>(replaces: typeof(TextDocumentParser))`, or removing the built-in's `ServiceDescriptor`
-  and its claim together. Deliberately not designed here — 3.11 was a bug-fix phase and this is API
-  surface.
-  → **Phase 4.2** (re-pointed 2026-08-02 by the Milestone 4 replan, design §5, from "with 4.1":
-  parser *replacement* is API design on the registration path, and §5 groups it with the rest of
-  the connector-and-ingestion API work under 4.2, leaving 4.1 the packaging mechanics this entry
-  originally leaned on).
 - **A twice-seen, twice-unnamed test failure in `Rag.NET.Benchmarks.Quality.Tests`** (seen once
   during Phase 3.16, **not reproduced in 86 subsequent runs** — 26 solo, 45 under three-way
   concurrency, 15 under a concurrent full-solution build — then **seen a second time during the
@@ -181,36 +162,6 @@ future reader can tell the difference between "never existed" and "dealt with".
   the first is made: the procedure has not been executed, the live suite has still never run,
   and its hand-written cassettes remain unconfirmed against the real service — that is 6.1's,
   unchanged. Only the Azure half keeps this entry open.]
-- **Three pieces of house furniture this repository lacks** (recorded in the Phase 3.5 design as out
-  of scope, scheduled here so they do not stay open notes). All three exist in
-  `MarcelRoozekrans/AdoNet.Async` and none exists here:
-  - **`docs.yml`** — a Docusaurus site is already in the tree (`sidebars.ts`, `src/css/custom.css`,
-    the whole `docs/` directory) and **nothing publishes it**. Written docs that nobody can read are
-    the same shape of gap as tests that never run, which is what 3.5 was about; it was kept out of
-    3.5 because a test-coverage phase is the wrong place to acquire a publishing pipeline, not
-    because it is small.
-  - **`.commitlintrc.yml`** — this repository already writes conventional commits by convention;
-    nothing enforces it, and release-please in 4.1 will read those messages.
-  - **`renovate.json`** — no automated dependency updates at all.
-  → **owners assigned 2026-08-02 by the Milestone 4 replan: `docs.yml` → Phase 4.5** (design §5 —
-  with the sidebar sweep, when the docs get read end to end), **`.commitlintrc.yml` and
-  `renovate.json` → Phase 4.1** (the commitlint pairing this entry already argued, and dependency
-  automation is the same release-plumbing pass; §5 is silent on renovate, so that half is the
-  replan's assignment rather than the design's).
-  [**The two 4.1 halves shipped 2026-08-03** (`1217791`), each with its limits measured rather
-  than assumed: `.commitlintrc.yml` was run against all **1,506** existing commits before being
-  allowed to fail anything — stock config-conventional rejects 184 of them, the tuned rules
-  (`bench` type allowed, `subject-case` and `body-max-line-length` off, each deviation counted
-  against history, not guessed) still reject 70, none newer than 2026-07-29 — so the gating job
-  lints only a pull request's base-to-head range and existing history is deliberately unlinted.
-  `renovate.json` is `config:recommended` plus forced semantic commits, validated with
-  `renovate-config-validator`, and recorded as **inert until the Renovate GitHub App is enabled
-  on the repository** — a hosted service reading the file, not a workflow anything here can run.
-  Only `docs.yml` keeps this entry open → Phase 4.5. [**Extended, still inert, 2026-08-04 (Phase
-  4.8):** `renovate.json` gained a `packageRules` entry batching patch/minor bumps into one PR a
-  week and leaving majors ungrouped and unscheduled — one PR per major, the shape the phase's own
-  Qdrant trigger argued for. Re-validated with `renovate-config-validator` the same day. Still
-  inert for the same reason: the app is still not enabled.]
 - **The ablation table's reranker row permutes only the set it is evaluated on** (found in Phase
   3.15 while writing up the table — **a design flaw in that phase's own plan, not a defect in the
   code**, and the entry says so because the two get fixed differently). The plan set the reranker
@@ -257,6 +208,16 @@ future reader can tell the difference between "never existed" and "dealt with".
   `IrMetrics`' own doc comment is wrong and gets corrected when this is picked up. Either way one
   sentence must change, and this paragraph exists so whoever runs TREC-COVID first knows which
   check comes before the run.
+  **Settled 2026-08-09 by reading the archive, and this entry was the one that was right.**
+  `fiqa/qrels/{train,test,dev}.tsv` from the pinned BEIR URL score **exactly 1 on every row** —
+  14,166 / 1,706 / 1,238 rows, no other value, nothing unparsable. **FiQA is binary.** So the
+  `2^rel − 1` path still has a graded fixture and has **never scored a graded dataset**, exactly as
+  this entry claimed, and `IrMetrics.cs`'s doc comment — which asserted FiQA was graded — was the
+  wrong sentence and has been corrected with the counts inline. TREC-COVID remains the first
+  graded dataset and remains unrun, so the Milestone 5 DoD criterion it feeds is still open. The
+  audit's own guess ("BEIR's published FiQA-2018 qrels are binary, which favours this entry") was
+  right, but it was recorded as unverified and stayed that way through four phases that could have
+  read one file — which is the more useful lesson than the answer.
   → **stays in Milestone 3's scope** (re-pointed 2026-08-02 by the Milestone 4 replan, design §5,
   which refuses to smuggle it into 4: run or explicitly declined before Milestone 3 closes, and
   declined gets written here, not implied). **And a correction to the design's own §5:** it routed
@@ -339,17 +300,25 @@ future reader can tell the difference between "never existed" and "dealt with".
   criterion holds it [now **Phase 6.1**, Milestone 6 — re-pointed 2026-08-03 at the v1.0
   postponement, with the recording criterion, which moved there as
   recording-or-recorded-reason].
-- **Two packages have never been exercised by any test at all** (declared honestly by Phase 4.0's
-  `<VerifiedBy>` ledger, 2026-08-02): `Rag.NET.Mcp.Tool` (a host scaffold no test references) and
-  `Rag.NET.Security.AspNetCore` (two types, zero test references). Both declare `VerifiedBy=none`,
-  which the ledger's release gate — "no package declares `none`" — turns into a v1.0 blocker
-  without failing today's build, because punishing an honest `none` is how a ledger becomes
-  fiction.
-  → **`Rag.NET.Mcp.Tool` → Phase 4.6** (the tooling phase — the same first-tests-for-an-executable
-  shape as the CLI) and **`Rag.NET.Security.AspNetCore` → Phase 4.5** (the samples are the first
-  thing that will host ASP.NET middleware end to end, and its first tests belong with that work).
-  Assignments made at 4.0's close, not in design §5, which predates the ledger's findings; the
-  release gate holds either way.
+- **The official Pinecone .NET SDK is abandoned** (found 2026-08-08 while triaging Renovate #38).
+  `pinecone-io/pinecone-dotnet-client` was **archived by its owner on 2026-07-03** — read-only, no
+  further releases, and no migration guidance published. The 4.x incompatibility this repository
+  already recorded on 2026-07-26 ("the 4.x control-plane models cannot deserialize Pinecone Local's
+  responses") is upstream's own **open** issue #54, filed against 4.0.2 with `pinecone-local`, and
+  it will not be fixed. Re-verified rather than assumed: v4 needs only a three-line
+  `CreateIndexRequestMetric` → `MetricType` rename to compile, but its `Index` model marks
+  `vector_type` required and **no published emulator image sends it** — `:latest` and the newest
+  tag `v1.0.0.rc0` both fail all 12 container-backed tests identically (`v0.6.0` and `v0.7.0` are
+  the only others, all 17 months old). `Pinecone.Client` 3.1.0 works and is fully tested, so it
+  stays, and `renovate.json` now pins `<4.0.0` so the PR stops reopening. **The real question is
+  not the version.** A connector resting on an archived SDK has three futures — stay on 3.1.0
+  indefinitely, hand-roll against Pinecone's REST API (the connector needs few endpoints), or drop
+  Pinecone support — and that is a decision, not a dependency bump. The one third-party
+  alternative found, `searchpioneer/pinecone-dotnet-client` (`Pinecone.Grpc 1.0.0-alpha1`), is a
+  four-commit alpha roughly three years old and is not a candidate.
+  → **unscheduled**, and deliberately so: nothing is broken today, and choosing between those
+  three futures needs more evidence about how much Pinecone matters to this library than exists
+  now.
 - **61 of 71 packages have only ever been exercised against fakes** (measured by Phase 4.0's
   ledger, 2026-08-02: `unit` 61, `container` 8, `recorded` 0, `live` 0, `none` 2). Not a defect
   list — the *shape* of the risk: `VerifiedBy=unit` is the state late chunking was in for five
@@ -388,26 +357,6 @@ future reader can tell the difference between "never existed" and "dealt with".
   project by project, which is the same pass the crefs need — and it must land before **Phase
   6.3** either way: publishing 70 IntelliSense-less packages is a defect the packaging phase has
   now measured, not a style choice.
-- **`Rag.NET.Chunking.Templates` still ships `MimeKit`, `CsvHelper` and `ClosedXML`** (Phase
-  4.7's Task 10, **stopped rather than completed**, 2026-08-04 — recorded here because a task
-  that stops without a commit leaves no other trace): moving `EmailTemplateDocumentParser` and
-  `QAPairsDocumentParser` to parser packages cycles. Both parsers constructor-require Templates
-  option types (`EmailChunkingOptions`, `QAPairsChunkingOptions`) while Templates'
-  `UseEmailChunking`/`UseQAPairsChunking` register those parsers by compile-time type, so the
-  receiving parser package needs a reference back into Templates and Templates needs one out to
-  it. Every escape route violated a phase constraint: moving the option types with the parsers
-  changes public type homes the phase promised not to change, an interface seam adds public
-  surface, duplicating the types forks them. So a user wanting the Book template — which needs
-  nothing — still installs an email stack and a spreadsheet library, and
-  `UseEmailChunking(registerParser: false)` and its QAPairs twin remain the only seam. **The
-  dissolving hint, so the next owner starts ahead:** `Rag.NET.Parsers.Email`'s
-  `EmailDocumentParser` already claims `message/rfc822` and is strictly more capable than the
-  template duplicate, so retiring the duplicate removes the cycle outright — but which parser
-  owns `message/rfc822` is exactly the behaviour decision Phase 3.11 deliberately refused to
-  make for the user, and it needs a phase's scrutiny, not a slot.
-  → **Phase 4.2**, with the parser-replacement API design that phase already owns — the same
-  registration-path-ownership question, decided in the same design session; schedule-or-decline
-  there, and declined gets written here, not implied.
 - **`ZeroAlloc.ValueObjects` roots five `Microsoft.Extensions` packages in every Rag.NET
   package's closure** (measured in Phase 4.7 with `dotnet nuget why`, 2026-08-04, `e46fe26`):
   `Rag.NET.Abstractions` → `ZeroAlloc.ValueObjects` → `Microsoft.Extensions.Hosting.Abstractions`
@@ -442,19 +391,6 @@ future reader can tell the difference between "never existed" and "dealt with".
   rather than trusted it. **Only the package-id-naming half remains open** →
   **Phase 4.5** (the docs-read-end-to-end pass that already owns the sidebar sweep and
   `docs.yml` — this is the same "nobody has read these pages against reality" work).
-- **`CostBudgetOptions.DatabasePath` survives as a property nothing reads** (created by
-  Phase 4.7's cost-ledger decision, `f2518d5`): the property stays in `Rag.NET.Abstractions`
-  (`CostBudgetOptions.cs`, default `"rag-cost-ledger.db"`), but no code consumes it —
-  `UseSqliteCostLedger()` takes its own `dbPath` parameter and never consults the option. The
-  stakes are higher than an options-shape question: a consumer who explicitly wrote
-  `o.DatabasePath = "spend.db"` asked for a specific persistent ledger, and until the phase's
-  adversarial-review fix their code compiled, passed validation, and silently got an in-memory
-  ledger whose spend resets on restart — budget enforcement quietly lost, with real money
-  behind it. That fix made a non-default `DatabasePath` a hard error from `UseCostBudgeting()`
-  naming `UseSqliteCostLedger(path)` as the replacement, so the loss is now loud; what remains
-  is retiring the write-only property itself (it still exists, still carries a default, and
-  can still be assigned its default value to no effect).
-  → **Phase 4.2** (Options Alignment & Validation), which owns deciding every option's home.
 - **`Rag.NET.Mcp.Tool`'s package shape needs one deliberate look before it publishes**
   (opened by the Phase 4.7 design as "19 MB, unexplained"; the phase's close explained it by
   measurement and shrank the question): a `PackAsTool` package ships its entire dependency
@@ -464,6 +400,22 @@ future reader can tell the difference between "never existed" and "dealt with".
   confirming that shape is intended (the Cl100kBase vocabulary and MCP stack dominate it) —
   small, but it must be a decision rather than a default before the tool is published.
   → **Phase 4.6** (which owns `Rag.NET.Mcp.Tool`'s first tests), owed before **6.3** publishes.
+  **Decided and re-measured 2026-08-08 (Phase 4.6).** The 1.87 MB figure is superseded: the tool
+  now carries the providers it needs to actually work, and packs at **4.97 MB, 55 entries** — 2.7×
+  the previous shape. Every increment is traceable to the design's bounded provider set
+  (`docs/plans/2026-08-08-executable-configuration-design.md` §1.1–§1.2), uncompressed:
+  **`OpenAI.dll` 4.98 MB**, the Qdrant stack (`Qdrant.Client` + `Google.Protobuf` +
+  `Grpc.Net.Client`) ~2.0 MB, **`Npgsql` 1.41 MB** for PgVector, on top of the pre-existing
+  `ModelContextProtocol.Core` and Cl100kBase vocabulary (~1.75 MB together). **This shape is
+  intended.** `OpenAI.dll` alone is the largest single item and is unavoidable given §1.1's
+  decision to standardise on one OpenAI-compatible client — that one dependency is what buys
+  OpenAI, Azure OpenAI, OpenRouter, Ollama and LM Studio rather than four separate providers, and
+  the alternative measured here is the shape the phase started from: 1.87 MB of tool that could
+  not register a pipeline, could not register a transport, and logged over its own protocol
+  stream. A working 5 MB tool is the better package. Anything beyond the bounded set is served by
+  hosting `Rag.NET.Mcp` directly (§1.3) rather than by growing this closure further — which is the
+  line that must hold, since the original 19 MB was reached one reasonable-looking reference at a
+  time.
 - **GoogleDrive's fourth field mask has no test** (found by Phase 4.10, `b3f026c`, 2026-08-05):
   widening `CreatedAt`/`UpdatedAt` support touched four identical field-selection sites — whole-drive
   `Files.List`, folder-traversal `Files.List`, and both pages of `Changes.List` — and three are
@@ -484,8 +436,211 @@ future reader can tell the difference between "never existed" and "dealt with".
   logic, not with the timestamp-channel work that happened to sit next to it twice now.
   → no phase currently owns the Slack or Microsoft Teams connectors' own fetch layer; stays
   unscheduled until one does, re-justified rather than silently dropped.
+- **`Rag.NET`'s pipeline options are not yet aligned on `IOptions` or validated with
+  `ZeroAlloc.Validation`** (`features.md:1117`, unchecked since the backlog was written; recorded
+  because Phase 4.2 no longer owns it): the Milestone 4 replan's design §5 routed "IOptions
+  Alignment + ZeroAlloc Validation for pipeline options" to Phase 4.2 under the name "Options
+  Alignment & Validation." Phase 4.2's own measurement (design §0) found five workstreams stacked
+  into that slot by four earlier phases and split two of them back out — documentation and
+  connectors — leaving "who owns a content type, and how that is declared" as the one subject the
+  phase actually built. The general `IOptions`/`ZeroAlloc.Validation` alignment was never one of
+  the five; it carried no design of its own, and none of the phase's seven tasks touches it. Phase
+  4.2 did close one options-home question inside its own scope — `CostBudgetOptions.DatabasePath`,
+  below — but that is a single property this phase happened to own, not the general alignment pass
+  the backlog row still describes.
+  → no phase currently owns the general `IOptions`/`ZeroAlloc.Validation` alignment; stays
+  unscheduled until one does, re-justified rather than silently carried under a phase number that
+  no longer means it.
+- **`AddParser<T>(replaces:, replacesTypeNames:)` cannot replace a factory-registered parser**
+  (found while implementing Phase 4.2's `RemoveReplacedParser`, 2026-08-08): both parameters match
+  on `ServiceDescriptor.ImplementationType`, which is `null` for every parser registered through
+  `AddSingleton<IDocumentParser>(sp => …)` rather than `AddSingleton<IDocumentParser, TParser>()`.
+  `Rag.NET.Parsers.Vision`, `.Email`, `.Archive` and this repository's own
+  `Rag.NET.Chunking.Templates` all register that way. Naming one of them in `replaces:` or
+  `replacesTypeNames:` removes nothing and throws nothing — it is a silent no-op indistinguishable
+  from naming a package that was never installed, which is the exact failure shape this whole
+  mechanism exists to remove. Documented on `RagBuilder.RemoveReplacedParser`'s own remarks rather
+  than fixed; the two replacements this repository ships today (`CsvDocumentParser`,
+  `ExcelDocumentParser`) both arrive through `AddParser<T>()` and are unaffected.
+  → no phase currently owns extending the replacement match beyond `ImplementationType` — the
+  options are resolving a provider to read the runtime type (the same "needs live instances"
+  problem `ParserClaim`'s own remarks describe) or a second, explicit removal key a factory
+  registration could supply; stays unscheduled until a phase touches parser registration internals
+  again, re-justified rather than silently dropped.
+- **The first `MakeGenericMethod` call in `src/`** (Phase 4.2's Task 3, 2026-08-08):
+  `RagBuilder.DeclareContentTypeClaims<TParser>` needs to invoke
+  `IDeclaresContentTypes.ContentTypes`, a static abstract interface member, on a `TParser` known
+  only at the `AddParser<TParser>()` call site with no constraint to `IDeclaresContentTypes` —
+  reachable only through a generic method built with `MethodInfo.MakeGenericMethod` once a runtime
+  check confirms the interface applies. No AOT or trim analyzer is enabled anywhere in this
+  repository and no package claims AOT compatibility, so nothing warns today. But
+  `MakeGenericMethod` is the textbook Native AOT failure mode, and the ROADMAP already lists
+  *Native AOT startup time* as a metric Phase 5.1 intends to measure — the first place this call
+  path's cost, if any, becomes visible. A reflection-free alternative exists — a second
+  `AddParser<TParser>()` overload constrained to `TParser : IDeclaresContentTypes`, which the
+  compiler binds automatically for every concrete caller — but it would silently fall back to the
+  reflective path for any generic-forwarding call (a helper that calls `AddParser<T>()` for a `T`
+  it only knows through its own type parameter), trading one silence for another rather than
+  removing it.
+  → **Phase 5.1** (Library Performance Comparison), the first phase that measures Native AOT
+  startup time and the first that would notice this path costing anything; re-justified rather
+  than fixed speculatively until it does.
+- **`ParserClaimCoverageTests` reads `ContentTypeMap`'s private `s_map` field by reflection**
+  (Phase 4.2's Task 4, 2026-08-08): `ContentTypeMap` exposes no public enumeration of the MIME
+  types it covers, only `FromFileName(extension)`, so the coverage test's "behaviour implies
+  declaration" direction reads the backing dictionary directly to build its check set. Renaming or
+  restructuring `s_map` breaks the test loudly — `ContentTypesInMap()` throws a named
+  `InvalidOperationException` naming the missing field rather than passing silently — so the
+  coupling fails safe, but it is real: a future refactor of `ContentTypeMap`'s storage shape has to
+  know this test reads inside it.
+  → no phase currently owns adding a public enumeration surface to `ContentTypeMap`; stays
+  unscheduled until one does, re-justified rather than silently dropped — the fail-loud property is
+  why this ranks lowest-urgency of the three debts recorded here.
+- **`ragnet evaluate` is not implemented** (Phase 4.6, `2c2e6d61`, 2026-08-08 — deferred
+  deliberately, not half-built): `Rag.NET.Evaluation`'s evaluators (`EmbeddingDistanceEvaluator`,
+  `LlmJudgeEvaluator`) score `EvaluationSample` instances that already carry a *predicted* answer,
+  and `AddRagNetPipelineFromConfiguration` registers no `IRagEvaluator`. A working command needs a
+  dataset file format this repository does not have anywhere — nothing parses a set of
+  question/reference pairs into the shape an evaluator scores — plus an evaluator-selection
+  decision, neither of which is a thin call onto an existing seam the way `ingest`/`query` are.
+  Running `ragnet evaluate` prints this reason to stderr and exits non-zero rather than
+  half-working.
+  → no phase currently owns designing a dataset file format for `Rag.NET.Evaluation`; stays
+  unscheduled until one does, re-justified rather than silently dropped — Milestone 5's evaluation
+  work is the closest existing candidate, but none of its four phases scopes this.
+- **`Rag.NET.Cli`'s and `Rag.NET.Mcp.Tool`'s `VerifiedBy=unit` excludes host selection and
+  process-level behaviour** (Phase 4.6, 2026-08-08, documented in each package's own csproj
+  remark rather than only here): choosing between the CLI's ingest/query host and
+  `Rag.NET.Mcp.Tool`'s stdio-vs-HTTP host, and actually running either one, is launching a process
+  or a Kestrel listener — not a computation a unit test asserts on. Both packages' command
+  handlers and argument parsing are genuinely covered; the host wiring around them is not.
+  → **Phase 6.2** (Raise the Floor on Unit-Only Packages), which already owns auditing every
+  `unit`-verified package's coverage before the ledger can call it more than "exercised at all".
+- **Nothing compiles documentation code snippets** (found in Phase 4.5, 2026-08-08, while
+  following `docs/getting-started.md` to build `samples/Rag.NET.QuickStart`): two of that page's
+  six numbered steps did not compile against the pinned packages — a wrong
+  `Microsoft.Extensions.AI.OpenAI` API and a package id used as a namespace — and every existing
+  guard passed regardless, `docs.yml` included, because `docs.yml` checks links, not code. A
+  Markdown code fence is prose to every tool in this repository; nothing ever tries to build it.
+  → no phase currently owns a doc-snippet compilation checker; stays unscheduled until one does,
+  re-justified rather than silently dropped.
+- **`npm audit` reports 25 vulnerabilities (6 moderate, 19 high)** (measured 2026-08-08 in Phase
+  4.5, after the Docusaurus 3.7.0 → 3.10.2 upgrade — the number the design's own text predicted,
+  "24 (12/12)", is stale; this is the actual post-upgrade count). All in the site's build-time
+  npm dependency tree — webpack-dev-server's transitive chain among them — not in anything shipped
+  to a Rag.NET consumer; recorded as deliberate debt for that reason, not fixed reflexively.
+  → no phase currently owns an npm audit remediation pass; stays unscheduled until one does.
+- **`docs/index.md`'s Quick Links point at `docs/plans/` as inline code, not a Markdown link**
+  (found in Phase 4.5, 2026-08-08): `docs/plans/` is not part of the published site (Task 2 of this
+  phase's own plan established that a relative link into it can never resolve), and because the
+  reference is rendered as `` `docs/plans/` `` rather than `[text](docs/plans/)`, no link checker
+  — including this phase's own `docs.yml` — has anything to flag. A reader following it from the
+  published site finds nothing.
+  → no phase currently owns rewording this reference (to a GitHub URL, or dropping it, per Task
+  2's precedent for the same class of link elsewhere); stays unscheduled until one does.
+- **`onBrokenMarkdownLinks` is a deprecated Docusaurus config key** (found in Phase 4.5,
+  2026-08-08, present since the Docusaurus 3.10.2 upgrade): `docusaurus.config.ts` sets
+  `onBrokenMarkdownLinks` directly; Docusaurus 3.10 wants it under
+  `markdown.hooks.onBrokenMarkdownLinks` instead and prints a deprecation warning on every build.
+  Cosmetic — the build still succeeds and still hard-fails on a genuinely broken Markdown link —
+  but a warning nobody silences tends to become the warning nobody notices.
+  → no phase currently owns migrating the config key; stays unscheduled until one does.
 
 ### Closed
+
+- ~~**Two packages have never been exercised by any test at all**~~ (declared honestly by Phase
+  4.0's `<VerifiedBy>` ledger, 2026-08-02): `Rag.NET.Mcp.Tool` (a host scaffold no test
+  references) and `Rag.NET.Security.AspNetCore` (two types, zero test references). Both declared
+  `VerifiedBy=none`, which the ledger's release gate — "no package declares `none`" — turns into a
+  release blocker without failing the build, because punishing an honest `none` is how a ledger
+  becomes fiction. Owners assigned at Phase 4.0's close: `Rag.NET.Mcp.Tool` → Phase 4.6,
+  `Rag.NET.Security.AspNetCore` → Phase 4.5. **The `Rag.NET.Mcp.Tool` half closed 2026-08-08 in
+  Phase 4.6** (`8762c181`): its argument parsing (`ProgramArguments`) and `X-Api-Key`
+  authorization decision (`ApiKeyAuthorization`) moved to named `internal` types,
+  `Rag.NET.Mcp.Tool.Tests` (16) covers both, `VerifiedBy=unit`. **Three real defects were found
+  by running the tool** — no pipeline registered, no transport registered (stdio silently started
+  a bare Kestrel server instead of speaking MCP), and logging over stdout, the exact channel MCP
+  JSON-RPC travels on — see Phase 4.6's own entry for the full account. **The
+  `Rag.NET.Security.AspNetCore` half closed 2026-08-08 in Phase 4.5** (`398c595f`):
+  `tests/Rag.NET.Security.AspNetCore.Tests` drives both of the package's types — `GetRoles()` and
+  `AddRagNetAspNetCoreSecurity()`/`UseRbac()` — through real ASP.NET Core primitives
+  (`HttpContextAccessor`, `DefaultHttpContext`, a real `TestServer` pipeline), including 16
+  concurrent requests with distinct roles to prove per-request resolution rather than a
+  cached/shared value, and both negative-path tests were verified to fail on the defects they
+  target before the fix. **Unlike Phase 4.6's package, no production defect was found here** — the
+  two types do what their names say. `VerifiedBy=unit`, ledger entry removed in the same commit.
+  **This was the last package at `none`**: `NoPackageIsVerifiedByNothing`'s skip condition is now
+  never true — `Rag.NET.RepoConventions.Tests` went from 48 passing + 1 skip to **49 passing, 0
+  skipped**, confirmed by an independent re-run of `PackageVerificationTests` at Phase 4.5's close.
+- ~~**Three pieces of house furniture this repository lacks**~~ (recorded in the Phase 3.5 design as
+  out of scope; all three exist in `MarcelRoozekrans/AdoNet.Async` and none existed here: `docs.yml`,
+  `.commitlintrc.yml`, `renovate.json`) → **closed 2026-08-08 in Phase 4.5**, the last of the three
+  to ship. Owners assigned 2026-08-02 by the Milestone 4 replan: `docs.yml` → Phase 4.5 (design
+  §5 — with the sidebar sweep, when the docs get read end to end); `.commitlintrc.yml` and
+  `renovate.json` → Phase 4.1. **The two 4.1 halves shipped 2026-08-03** (`1217791`):
+  `.commitlintrc.yml` was run against all 1,506 existing commits before being allowed to fail
+  anything — stock config-conventional rejects 184, the tuned rules still reject 70, none newer
+  than 2026-07-29 — so the gating job lints only a pull request's base-to-head range;
+  `renovate.json` is `config:recommended` plus forced semantic commits, validated with
+  `renovate-config-validator`, and gained a `packageRules` entry at Phase 4.8 (2026-08-04,
+  re-validated the same day) batching patch/minor bumps weekly and leaving majors ungrouped.
+  **Recorded inert through Phase 4.8, and that note went stale without anyone correcting it**: the
+  Renovate GitHub App is enabled and has been opening PRs against this repository since
+  2026-08-05 — five `renovate/*` branches live at this closure (`box.v2-10.x`,
+  `major-ml-dotnet-monorepo`, `pinecone.client-4.x`, `wiremock.net-2.x`,
+  `zeroalloc.mediator.generator-5.x`), several already merged, including a major bump
+  (`zeroalloc.valueobjects` to v2, PR #54). Corrected here and in `docs/reference/ci.md`'s
+  Renovate section, both of which had carried the stale claim forward. **`docs.yml` — the half
+  that kept this entry open — closed 2026-08-08 in Phase 4.5**: builds the Docusaurus site on
+  every pull request (`npm ci && npm run build`), modelled on `ci.yml`'s job shape and confirmed
+  to fire on a normal PR trigger. Deployment is deliberately not part of it — the site is
+  configured for `rag-net.github.io/Rag.NET/` (`organizationName: 'rag-net'`), the repository is
+  `MarcelRoozekrans/Rag.NET`, the `RAG-Net` GitHub org exists but does not hold this repository,
+  and GitHub Pages is enabled nowhere for it (the Pages API answers 404) — a real decision this
+  phase does not have grounds to make, recorded rather than guessed at by "fixing"
+  `organizationName` to a plausible-but-unverified value.
+- ~~**No supported way to replace a built-in parser**~~ (found while fixing the Phase 3.11
+  review's first finding) → closed 2026-08-08 in Phase 4.2 (Parser Registration Ownership),
+  **implemented**: `RagBuilder.AddParser<TParser>(replaces:, replacesTypeNames:)` removes the
+  named parser's `IDocumentParser` `ServiceDescriptor` and its `ParserClaim` together, rather than
+  only silencing the conflict check. Silencing alone would not have been enough — selection takes
+  the first registered parser whose `CanParse` matches, and built-ins register before `configure`
+  runs, so a "replacement" that left the old descriptor in place would still lose to it.
+  `replacesTypeNames` (a `string[]`) exists for a caller with no compile-time reference to the
+  parser it overrides — `Rag.NET.Chunking.Templates` naming `Rag.NET.Parsers.Office`'s
+  `ExcelDocumentParser`, which may not even be installed; a name matching nothing registered
+  removes nothing and is not an error, the shape "the package isn't installed" needs. Both match by
+  `Type.FullName`, not `Type.Name` — the same short-name reasoning `ParserClaim.ParserTypeName`
+  pins. **One debt this closure created rather than removed, recorded above**: the match is on
+  `ServiceDescriptor.ImplementationType`, which is `null` for a factory-registered parser, so
+  Vision, Email, Archive and Chunking.Templates' own factory registrations cannot be named here —
+  a silent no-op indistinguishable from an absent package.
+- ~~**`Rag.NET.Chunking.Templates` still ships `MimeKit`, `CsvHelper` and `ClosedXML`**~~ (Phase
+  4.7's Task 10, stopped rather than completed, 2026-08-04) → closed 2026-08-08 in Phase 4.2,
+  **partly implemented, and correctly not finished**. `message/rfc822` — `EmailTemplateDocumentParser`
+  duplicated `Rag.NET.Parsers.Email`'s strictly more capable `EmailDocumentParser`, and
+  `UseEmailChunking`'s own remarks already recorded that the chunking strategy "does not care which
+  parser produced" its sections — is retired outright: the type is deleted, `UseEmailChunking`'s
+  `registerParser` escape hatch goes with it, and `MimeKit` drops from the package, verified in the
+  packed nuspec's `<dependencies>` rather than trusted from the csproj (Phase 4.7's own lesson: a
+  floating reference freezes into the nuspec). **`text/csv` — kept, on purpose, not left over.**
+  `QAPairsDocumentParser` is not a duplicate of core's `CsvDocumentParser`: `QAPairsChunkingStrategy`
+  reads the answer out of `DocumentSection.Heading` as a documented internal contract with that
+  parser, so retiring it would break the feature. `CsvHelper` and `ClosedXML` stay for exactly that
+  reason. An earlier design proposed retiring both parsers on symmetry and claimed all three
+  dependencies would drop — that was wrong, and only `MimeKit` ever does. Phase 4.7's Task 10 is
+  therefore **partly complete**, not finished, and that is the honest final state rather than a
+  waypoint.
+- ~~**`CostBudgetOptions.DatabasePath` survives as a property nothing reads**~~ (created by Phase
+  4.7's cost-ledger decision, `f2518d5`) → closed 2026-08-08 in Phase 4.2, **implemented**: the
+  property, its `DefaultDatabasePath` constant, and the `UseCostBudgeting()` guard that turned a
+  non-default value into a runtime error are all removed together. A consumer who writes
+  `o.DatabasePath = "spend.db"` now gets a compiler error naming a property that does not exist,
+  which is strictly better than the runtime error it replaces — the mistake is caught before the
+  build, not after `UseCostBudgeting()` runs. The dangling `<see cref="CostBudgetOptions.DatabasePath"/>`
+  references the removal would otherwise have left in `RagBuilderExtensions.cs` were removed in the
+  same change, ahead of the documentation-generation phase that would have turned them into a
+  CS1574 build failure.
 
 - ~~**`BuildMetadata` drops `baseMetadata.CreatedAt`, so provider-ingested documents score as
   brand new**~~ (found in Phase 2.2; recorded until 2026-08-02 only in
@@ -864,6 +1019,35 @@ future reader can tell the difference between "never existed" and "dealt with".
   call: neither chunking strategy takes options at all, so `UseEmailChunking(o => {
   o.IncludeHeaders = false; o.RegisterParser = false; })` compiled, ran, threw nothing and silently
   discarded `IncludeHeaders` — dropping the parser dropped its only reader.
+  **The "still open, and not scheduled" paragraph above is closed as of 2026-08-08, by Phase 4.2
+  (Parser Registration Ownership) — and its own first measurement was wrong in three ways, recorded
+  here because the wrong version was persuasive and nearly reached implementation** (design §1.1).
+  It is **not** "11 parsers covering ~22 content types declare nothing, two live silent
+  collisions." Measured: seven of those eleven — Audio, Epub, Html, Office (×3), Pdf — register
+  through `AddParser<T>()`, exactly the path this paragraph already named as the accepted,
+  documented limit; counting them again as a fresh gap double-charged the same fact. Only **one**
+  collision was live, `…spreadsheetml.sheet` between `ExcelDocumentParser` and
+  `QAPairsDocumentParser` — `CsvDocumentParser` carries no `[Singleton]` attribute and nothing
+  registers it by default, so its `text/csv` overlap is conditional on a caller adding it
+  explicitly, not universal. And a claimed third collision, `image/jpeg` between the two Vision
+  parsers, did not exist at all — the string in `VideoDocumentParser` is the MIME type of an
+  extracted video *frame* handed to `DataContent`, not a `CanParse` claim, and it was found by
+  grepping whole files rather than reading `CanParse` bodies. **The one genuine oversight was
+  Vision**: it registered two parsers through `AddSingleton<IDocumentParser>`, the same mechanism
+  Archive, Email and this repository's own Chunking.Templates use *with* claims, and declared none
+  — an inconsistency with its own peers, not the documented `AddParser<T>()` limit.
+  **What actually shipped, in the order the design required** (reversing it would have turned
+  `UseQAPairsChunking()` into a startup error for every user of `Rag.NET.Parsers.Office`):
+  `AddParser<T>(replaces:, replacesTypeNames:)` landed first as the override vocabulary;
+  `UseQAPairsChunking()` adopted it, declaring `text/csv` against `CsvDocumentParser` and
+  `…spreadsheetml.sheet` against `ExcelDocumentParser` by type *name*, so replacing an optional
+  package that may not be installed is a no-op rather than a compile-time dependency; and an
+  opt-in `IDeclaresContentTypes` interface lets a parser enumerate its own accepted types so
+  `AddParser<T>()` can declare claims for it automatically — adopted by all nine parsers that can
+  state their set honestly, closing Vision's oversight along with the rest, and held to `CanParse`
+  by a new convention test (`ParserClaimCoverageTests`) rather than left to drift. `CanParse`
+  itself is unchanged: a parser that cannot enumerate its types honestly simply does not opt in,
+  and remains exactly as undetected as this paragraph already said it would be.
 - ~~**Stack-recursive email traversal**~~ (Phase 2.1, Part C) → closed in 3.9, **implemented**.
   **Read the history before trusting the word "closed": this entry was closed once already, in
   3.6, as "re-justified, not implemented", on a premise that phase's own whole-phase review
@@ -1253,7 +1437,7 @@ Measured at stock `ChunkingOptions` — 512 characters, 50 of overlap: **FiQA 42
 
 **Completed:** 2026-07-31 (**confirmed a defect — the precondition this entry set — and it was three faults rather than one.** First, the size limit was not consulted before splitting: `SplitRecursively` checked whether text fit within `MaxChunkSize` only on the branch where the current separator was absent, so a 35-character section became 2 chunks against a 512-character limit. Second, split parts were never packed back: every part that fit was emitted as its own chunk, and with no sentence separator present the recursion reached the `" "` separator and emitted **one chunk per word** — 150 words became 150 chunks of 4 characters, which is what settled the "is it deliberate?" question, because nobody deliberately makes word boundaries chunk boundaries. Third, `Split(". ")` destroyed sentence punctuation and nothing put it back. Also fixed: chunk positions had a silent fallback that reported a wrong position as a real one — now an exception, justified by 500 generated-input iterations proving it unreachable. **The existing tests asserted the defect and the docs drew it.** `ChunkAsync_SplitsByParagraphsFirst` asserted 2 chunks for a 35-character input and passed; the chunking guide's flowchart drew "fits in MaxChunkSize? → yes → emit chunk" with no merge step. Code, tests and docs agreed with each other and all three were wrong — the sixth instance of that shape in this milestone. **Chunk counts, re-measured at the same stock options:** SciFact 56,707 → **20,155** units from 5,183 documents (10.9× → **3.9×**, worst single document 221 → 25); FiQA 429,850 → **121,236** from 57,638 (7.5× → **2.1×**, worst 1,723 → 41); ArguAna 82,618 → **24,003** from 8,674 (9.5× → **2.8×**, worst 285 → 16). FiQA's 522-character median against a 512-character chunk size suggested ~2× and produced 7.5×; it now produces **2.1×** — the discrepancy that opened the investigation is closed. **Parity runs unmoved, which was the phase's regression gate:** SciFact 0.64593 and ArguAna 0.50432, both separators, identical to Phase 3.12 to five decimal places. FiQA's parity 0.37086 was not re-run: it is gated, and the parity protocol indexes one chunk per document and never calls the split path. **Both real runs improved in absolute terms:** SciFact 0.65589 → **0.67742** (delta against parity +0.00995 → **+0.03148**; Recall@10 0.81322, MRR@10 0.63757, all 1,109 queries pooled) and ArguAna 0.42594 → **0.47559** (delta −0.07839 → **−0.02873**; Recall@10 0.77240, MRR@10 0.38435, all 1,406 queries pooled). **The design made a falsifiable prediction and it held.** §6 said: if 3.12's explanation was right that ArguAna's −0.0784 came from fragmenting whole counterarguments, packing should shrink the loss substantially — and said explicitly that if ArguAna did *not* improve, 3.12's recorded explanation was wrong and the roadmap must be corrected. ArguAna recovered about **63%** of the loss, so the explanation stands. The signs remain opposite, so "where relevance lives" still holds: the residual is what packing cannot touch — whole-argument queries scored against 512-character pieces. **FiQA's real-leg cost is revised from an estimated 8–9 h to a derived ~1.5–2 h** — 121,236 chunk plus 6,648 query embeddings at the ~27 embeddings/s observed across the two packed real legs — still Phase 3.15's run, not this one's. [**Measured there, 2026-08-02: 1 h 4 m** — the derivation overshot, and 3.15 records that rather than replacing it.] **The audit of the other strategies found the inverse defect**, and per this entry's own not-in-scope rule it is said rather than quietly widened into: `HierarchicalMergerChunkingStrategy` never reads `MaxChunkSize` at all, and `BookChunkingStrategy`, `LegalChunkingStrategy` and `AcademicPaperChunkingStrategy` all delegate to it, so a user setting `MaxChunkSize` on any of those templates gets no effect from it — recorded in the follow-up-debts list → Milestone 4, with 4.1. Two more debts recorded with it: `docs/reference/benchmarks.md`'s Recursive rows predate packing → re-measured immediately after this phase closed, `cfea8e9` — packing made Recursive faster at every size, allocation down at 500 characters and up at 50 KB (closed; full numbers in the Closed list), and a failure in `Rag.NET.Benchmarks.Quality.Tests` — seen once in this phase, 86 clean runs, then **seen a second time during the whole-phase review and again unnamed**, because the run logged summary-only; still not diagnosed, and the open entry's `--logger trx` instruction stands vindicated. **The whole-phase review also found and closed a test gap:** every chunk was proven a substring of the source, but nothing proved the converse — a mutation deleting `SplitParts`' mid-stream flush silently discarded every run of short parts preceding an oversize sibling and all 1,340 core plus 110 quality tests stayed green. `9682967` adds a coverage property — every character not covered by a chunk span at `Overlap = 0` must be whitespace or a `'.'` on a pack boundary — plus a deterministic case, both failing under the mutation; the suite is now **1,342**. The shipped code never dropped anything — a missing test, not a shipped bug.)
 
-## Milestone 4: Release Readiness [status: active]
+## Milestone 4: Release Readiness [status: complete]
 **Goal:** Make Rag.NET shippable — CI, NuGet publishing, first-class configuration, logging, telemetry, and runnable samples — and prove that what ships works, which the first half of this sentence cannot do on its own: a green build has now been watched to coexist with four live defects.
 **Started:** 2026-08-02
 
@@ -1291,11 +1475,25 @@ one was found by a test. Every criterion below can be false, and something check
 service has a scrubbed, dated recording" — and `Release tagged v1.0` moved to **Milestone 6's**
 DoD, the recording criterion widened there to recording-or-recorded-reason; completing this
 milestone no longer tags anything, and every other criterion is unchanged):
-- [ ] All planned phases complete (6 of 11 as of 2026-08-05: 4.0, 4.1, 4.7, 4.8, 4.9, 4.10 — the phase list grew Phase 4.9, created and completed 2026-08-04 to fix the `BuildMetadata`/`CreatedAt` defect and correct the wrong "slot, not a phase" estimate that had routed it to 4.2, and Phase 4.10, created the same day and completed 2026-08-05 — the connector-timestamp-threading work 4.9 priced but did not do. Phases 4.2–4.6 remain pending, so this box stays open)
-- [ ] Full solution builds 0 warnings / 0 errors from a clean restore
-- [ ] All test projects passing — **and no test is gated behind a condition nothing satisfies** (`TestGateTests`, Phase 4.0). **The gate half holds as of 2026-08-03** (Phase 4.1): both `KnownUnsatisfiable` ledgers are empty, and every formerly-unsatisfiable gate is satisfiable by a fenced procedure in `docs/reference/ci.md` — `ENABLE_OCR` and `RAGNET_TESSDATA` by the `-p:EnableOcr=true` source-build procedure, **executed green on 2026-08-03** (the gated test's first run anywhere); `RAGNET_DOCINTEL_ENDPOINT`/`_KEY` by the `az` F0 free-tier provisioning procedure — written and satisfiable, deliberately not executed, the live run being Phase 6.1's. The box stays open on the all-projects half, checked at the milestone's close. **Corrected 2026-08-04 (Phase 4.8): the clause that used to end this note — "4.1's own workflow changes have not yet had a genuine Actions run" — is no longer true**; the last DoD criterion below now cites the run that made it false. This box stays open regardless: it needs every project passing on the tree at the milestone's close, and Phase 4.8's own tree has not itself been through Actions yet
+- [x] All planned phases complete (**resynced 2026-08-08, by the phase that closes this box**: 13
+  of 13 — 4.0 through 4.12 — are `[status: complete]`, confirmed by re-reading every phase header
+  in this file rather than trusting the stale count below. **Phase 4.5** (Sample Applications) was
+  the last one pending; its own entry below records what closed it: the doc-site build repair,
+  `docs.yml`, `samples/Rag.NET.QuickStart`, and `Rag.NET.Security.AspNetCore` off `VerifiedBy:
+  none`. History, kept rather than deleted: 6 of 11 as of 2026-08-05 (4.0, 4.1, 4.7, 4.8, 4.9,
+  4.10 — the phase list grew 4.9 and 4.10 that week), then went stale by four more closures — 4.2
+  (2026-08-08), 4.3, 4.4, 4.11 and 4.12 — none of which updated this line, exactly the gap this
+  resync exists to close)
+- [x] Full solution builds 0 warnings / 0 errors from a clean restore (**closed 2026-08-08 at the milestone's close**: every `obj/` and `bin/` directory deleted, `dotnet restore Rag.NET.slnx` from empty — 0 warnings — then `dotnet build -c Release --no-restore`: **0 Warning(s), 0 Error(s)**. Deleting the intermediate output first is the load-bearing part; an incremental build is not a measurement, a lesson this milestone learned twice)
+- [x] All test projects passing — **and no test is gated behind a condition nothing satisfies** (`TestGateTests`, Phase 4.0). **The gate half holds as of 2026-08-03** (Phase 4.1): both `KnownUnsatisfiable` ledgers are empty, and every formerly-unsatisfiable gate is satisfiable by a fenced procedure in `docs/reference/ci.md` — `ENABLE_OCR` and `RAGNET_TESSDATA` by the `-p:EnableOcr=true` source-build procedure, **executed green on 2026-08-03** (the gated test's first run anywhere); `RAGNET_DOCINTEL_ENDPOINT`/`_KEY` by the `az` F0 free-tier provisioning procedure — written and satisfiable, deliberately not executed, the live run being Phase 6.1's. The box stays open on the all-projects half, checked at the milestone's close. **Corrected 2026-08-04 (Phase 4.8): the clause that used to end this note — "4.1's own workflow changes have not yet had a genuine Actions run" — is no longer true**; the last DoD criterion below now cites the run that made it false. This box stays open regardless: it needs every project passing on the tree at the milestone's close, and Phase 4.8's own tree has not itself been through Actions yet **Closed 2026-08-08: the all-projects half was measured for the first time by running every tier.** **71 test projects, 3,874 passed, 54 skipped, 0 failed** — ungated 55 projects/3,345 passed; Docker 9/238 (all six vector-store backends against real containers, PgVector alone 61); Secrets 6/283; LLM (`Rag.NET.E2ETests`) 1/8 with **zero skips**, so the hosted-model path genuinely executed rather than falling through. The 54 skips are capability-specific, not inert projects: `Benchmarks.Quality.IntegrationTests` skips 38 while still running 56, and `Parsers.Pdf` skips none of its 51. Each is recorded with its reason and re-checked by `TestGateTests`, which also asserts every recorded-unsatisfiable gate is *still* unsatisfiable, so the ledger cannot rot in either direction.
 - [x] **Every `features.md` Done claim names code that exists** (`FeatureClaimTests`, Phase 4.0; **holding as of 2026-08-03**: both false claims were corrected at Milestone 3's close, `81163af` — `KnownFalseClaims` is empty and all 72 package claims across 53 Done sections are verified directly. Failing knowingly from 4.0's sweep until then, with the two claims allow-listed under owners → 4.4 and 4.1; both closed early instead, in the Closed debts list)
-- [ ] **No package declares `VerifiedBy=none`** (the ledger's release gate, Phase 4.0; **failing today, honestly**: `Rag.NET.Mcp.Tool` → 4.6, `Rag.NET.Security.AspNetCore` → 4.5)
+- [x] **No package declares `VerifiedBy=none`** (the ledger's release gate, Phase 4.0. **Closed
+  2026-08-08 in Phase 4.5**: `Rag.NET.Security.AspNetCore` moved to `VerifiedBy: unit` — the last
+  package at `none`, `Rag.NET.Mcp.Tool` having closed 2026-08-08 in Phase 4.6. **Verified rather
+  than assumed**: `PackageVerificationTests` re-run at this close — 49 passing, 0 skipped;
+  `PackagesAllowedToDeclareNone` is empty; `NoPackageIsVerifiedByNothing` is now a plain passing
+  assertion rather than a reported skip, exactly the state its own doc comment says the Definition
+  of Done requires. See the debts list above for what each closure found)
 - [x] CI pipeline builds, tests, and produces NuGet packages (the build-and-test half has been green since Phase 3.5; the pack half shipped in Phase 4.1 — `pack-validate` packs every package [all 70 at the time; **66** since Phase 4.7's decomposition, 2026-08-04, with `ExpectedPackageCount` moved by stated arithmetic], validates them as a failing test step and pushes them to a local feed twice on every push, `publish-nuget` gated to 6.3. **Ticked 2026-08-04 (Phase 4.8), on the evidence this box asked for rather than the wiring**: PR #18 — Phase 4.1's own branch — ran `ci.yml` for real and gated its own merge on it: `commitlint`, `pack-validate` and both `build-test` legs all green (run **30828032049**, 2026-08-03). Every push to `main` since has run the identical pipeline for real, including the case this repository's own record predicted would eventually happen: the Qdrant `SearchAsync` break went red on a genuine `build-test` run on `main` (**30919869612**, 2026-08-04, no commit involved) and the fix went green on the next one (**30926805555**). The pipeline has now executed, repeatedly, against real pushes — this criterion is about the mechanism, and the mechanism is proven. What it does **not** cover: Phase 4.8's own tree has never itself been through Actions — this branch is unpushed, and the honest gap moves to the DoD's all-projects criterion above, not this one)
 
 **What these guards do not fix** (design §7, stated so the milestone does not claim more than it
@@ -1376,7 +1574,9 @@ validation, the real 409-skip and `.snupkg` delivery are exercised for real exac
 (`docs/reference/ci.md` § "What the rehearsal cannot prove"); (2) `release-please.yml` is the
 one genuinely unexercisable path — its only observable effects *are* the release — gated
 dispatch-only, procedure fenced in ci.md, pinned by `WorkflowWiringTests`; (3) `renovate.json`
-is inert until the Renovate app is enabled — a hosted service, not a runnable workflow; (4) on
+is inert until the Renovate app is enabled — a hosted service, not a runnable workflow [**stale by
+2026-08-08, Phase 4.5**: the app is enabled and has been opening PRs since 2026-08-05 — see the
+closed "Three pieces of house furniture" debt entry above]; (4) on
 feature branches the prerelease number does **not** increment per commit — this whole branch
 packed as `0.1.0-nuget-packaging.1` — only `main`'s `preview.N` counts up, which is the number
 6.3 depends on; (5) the DOCINTEL gates are satisfiable, not exercised (their entry above); and
@@ -1613,7 +1813,11 @@ API equivalent to fence — the one gate on this page with no runnable procedure
 rather than papered over. **Two claims recorded separately, not conflated:** *dependency pinning
 is delivered and provable* — the empty 156-line diff, above; *upgrade automation is configured
 and unexercised* — `renovate.json` has never proposed a PR, because the app has never been
-enabled. Only the first is demonstrated by any work in this repository to date.
+enabled. Only the first is demonstrated by any work in this repository to date. [**Stale by
+2026-08-08, Phase 4.5:** the app is enabled and has been opening PRs since 2026-08-05 — five
+`renovate/*` branches live at that correction, several already merged, including a major bump.
+Both claims are now demonstrated; see the closed "Three pieces of house furniture" debt entry
+above for the evidence.]
 **What this does not buy, stated plainly:** pinning does not prevent deprecations. `SearchAsync`
 would still have gone obsolete in 1.18.1 whether the reference was pinned or not. What changes is
 *how the repository finds out* — a Renovate PR whose CI goes red, reviewed on the owner's
@@ -1920,9 +2124,220 @@ progress; it does not create it.
 left unmodified and reported rather than adjusted. `RepoConventions` unchanged at 37+1 skip (not
 touched by this phase). Full solution build: 0 warnings, 0 errors.
 
-### Phase 4.2: Options Alignment & Validation [status: pending]
-**Goal:** Align pipeline options on IOptions and validate them with ZeroAlloc.Validation.
-**Backlog items:** IOptions Alignment + ZeroAlloc Validation for pipeline options
+### Phase 4.12: SystemPrompt Coverage (Issue #56) [status: complete]
+**Goal:** Establish, provably rather than by reading source, whether `RagOptions.SystemPrompt`
+does what [issue #56](https://github.com/MarcelRoozekrans/Rag.NET/issues/56) reported it does
+not. Changes no production behaviour — this phase is coverage and documentation only. (Not a
+features.md row — created 2026-08-07 out of a user report, numbered after 4.11 because it was
+created after, executed next in the milestone's phase list.)
+**Plan:** `docs/plans/2026-08-07-system-prompt-coverage-design.md` +
+`2026-08-07-system-prompt-coverage-implementation.md`
+**Completed:** 2026-08-07, branch `fix/system-prompt-coverage`.
+
+**The origin.** Issue #56, *"SystemPrompt ?"*: a user's `RagOptions.SystemPrompt` against Azure
+OpenAI GPT-5 asked for the exact sentence *"I cannot find any relevant information."* and the
+model returned a paraphrase followed by *"Sources used: Source 1, Source 2…"*.
+
+**The verdict: `SystemPrompt` was never broken.** It is applied in all four answer engines and
+preserved by `PromptHardeningAnswerEngineDecorator`
+(`src/Rag.NET.Security/PromptHardeningAnswerEngineDecorator.cs`). Two things explain the report,
+neither a bug: the `[Source N]` context labels invite citations regardless of what the system
+prompt says, and the model paraphrased a canned string — ordinary LLM behaviour, not a defect.
+**The actual defect was that none of this could be established without reading the source** —
+untested, invisible behaviour, not a bug fix. `docs/guide/retrieval.md` now documents the literal
+`Context:`/`[Source N]`/`Question:` shape the final user message carries, the conversation-history
+ordering rule below, and how to register an `IPromptObserver` to see the assembled prompt directly
+(`1a9046a1`) — the seam that would have let the reporter answer his own question in one run.
+
+**The existing test passed for the wrong reason.** `AskAsync_WithCustomSystemPrompt_UsesIt`
+asserted `msgs[0].Text == "Custom prompt"`. That held only because its fixture supplied no
+`ConversationHistory` — with a leading history system message, `ChatAnswerEngine` places it before
+the caller's `SystemPrompt` (deliberately, so a host-injected prompt-hardening prefix is never
+shadowed by a per-request prompt), so the caller's prompt lands at index 1, not 0. Any change
+moving the prompt's position would have been caught only when a user had history *and* noticed.
+Fixed to assert by role and content instead (`f5b23728`), and a second test,
+`AskAsync_WithHistorySystemMessageAndCustomSystemPrompt_OrdersHistorySystemFirst`
+(`c2151ef4`, `tests/Rag.NET.Tests/AnswerGeneration/ChatAnswerEngineTests.cs`), pins the full
+ordering the first assertion had been silently depending on.
+
+**Three coverage layers, three tiers:**
+
+| Layer | Test(s) | Proves | Tier |
+|---|---|---|---|
+| Engine-level mock | `ChatAnswerEngineTests` (existing + `c2151ef4`) | the message list is built correctly | gating |
+| Full-pipeline mock | `AskAsync_WithCustomSystemPrompt_ReachesChatClientAsSystemMessage`, `AskStreamingAsync_WithCustomSystemPrompt_ReachesChatClientAsSystemMessage` (`9febb9be`, `tests/Rag.NET.Tests/Pipeline/RagPipelineFacadeTests.cs`) | `SystemPrompt` survives `RagPipeline.AskAsync` **and `AskStreamingAsync`** | gating |
+| Real model, no sources | `AskAsync_CustomSystemPrompt_MarkerAppearsInRealProviderResponse` (`3345bbda`, `tests/Rag.NET.E2ETests/SystemPromptE2ETests.cs`) | the prompt reaches the provider and changes output | nightly `RequiresLlm` |
+| Real model, sources retrieved | `FullPipeline_CustomSystemPrompt_HoldsWhenSourcesAreRetrieved` (`987d7bb6`, `tests/Rag.NET.E2ETests/FullPipelineTests.cs`) | the prompt survives **real retrieved context** — the only case #56 was about | nightly `RequiresLlm`, OpenRouter-gated |
+
+Before this phase, only the first layer existed. The full-pipeline mock closes a real gap: the
+pre-existing pipeline tests substitute `IAnswerEngine` entirely, so they never touched
+`ChatAnswerEngine`'s message-building code — a change swallowing the prompt between `RagOptions`
+and `IChatClient` would have passed CI.
+
+**The second finding — unrelated to #56, and the more valuable one.** Running the real-model test
+surfaced a live defect in the test infrastructure itself: `TestChatClientFactory`'s default
+OpenRouter model, `nvidia/llama-3.1-nemotron-70b-instruct`, had been **delisted** — absent from the
+400 models OpenRouter's catalogue now returns — so every request against it failed with an opaque
+`HTTP 404: No endpoints found` rather than anything resembling a test failure. It went unnoticed
+because `OPENROUTER_API_KEY` appeared nowhere in CI: the nightly LLM tier always took the Ollama
+fallback, so the OpenRouter branch was unreachable in CI and rotted unobserved. This is the same
+**inert-path** failure shape the repository has hit before — a fallback that quietly becomes the
+only path, and a primary path nobody watches go green. Fixed in `405460d7`, two changes because
+either alone leaves the trap armed: the default replaced with `meta-llama/llama-3.3-70b-instruct`
+(`tests/Rag.NET.Testing/TestChatClientFactory.cs`, with a note on where to re-check when it starts
+404ing in turn), and `OPENROUTER_API_KEY` wired into the nightly LLM tier (`.github/workflows/nightly.yml`)
+so the branch is exercised rather than merely present. Side effect: `OllamaFixture` now skips the
+`llama3.2:1b` pull when the key is set, roughly halving the tier's model download; unset, both
+suites still pass on Ollama.
+
+**Why the marker test is trustworthy.** The first instruction wording was **ignored by the
+`llama3.2:1b` fallback** — it answered *"The capital of France is Paris."* with no marker at all.
+The assertion was **not weakened** to accommodate that: the instruction was made blunter and
+shorter, and the fallback then followed it in **3 of 3** runs. Verified on both paths — OpenRouter
+and Ollama. For the source-free test, gating on `IsOpenRouterAvailable` was considered and
+rejected, because a skip in the tier when no key is set is exactly how the OpenRouter path went
+stale in the first place. The test deliberately does not assert the reporter's own case (an exact
+requested sentence) — asserting exact text would make it flaky for precisely the reason the issue
+exists.
+
+**The empty-store gap, caught in review.** The first real-model test ran against an empty
+`InMemoryVectorStore`, so the context block was empty and the `[Source N]` labels never appeared at
+all — it proved the prompt reaches the provider, but not that it survives retrieved context, which
+is the only situation issue #56 describes. `987d7bb6` closes that in `FullPipelineTests`, which
+already ingests three documents into PgVector. All three of its assertions are load-bearing, and
+the weakest-looking one earned its place immediately: instructed to append a marker, `llama3.2:1b`
+returned **the marker and nothing else**, so a marker-only assertion would have gone green on an
+empty answer. Unlike the source-free test, this one **is** gated on `IsOpenRouterAvailable` — with
+a context block competing for its attention the 1B model either emitted the marker alone or filled
+the brackets in as a template (`<<Paris, France>>`) in 3 of 3 runs. Two rewordings did not move it,
+so the model is the limit rather than the wording and the assertion was left intact. The gate is
+live rather than inert because the nightly now supplies the key, and it was verified in both
+directions: skips without a key, passes with one.
+
+**The question this phase did not answer.** The reporter asked *"What is my address?"* and got
+*"There isn't enough information in the provided context…"*. They raised it as a `SystemPrompt`
+complaint — they wanted a literal canned sentence — and that framing is what this phase answers.
+But what they actually wanted was the address, and the issue never establishes whether it was in
+their documents at all. The evidence points at retrieval rather than the prompt: with
+`TopK = 5, MinScore = 0.5` the model reported using Sources 1–5, so five chunks cleared the floor
+and nothing was filtered into silence. If the address is in the corpus, the failure is **ranking** —
+and `"What is my address?"` is close to a worst case for dense retrieval, being four words
+dominated by a pronoun against a target chunk that shares almost no semantic surface with it. The
+maintainer reply asked about `Temperature` and pointed at `IPromptObserver` but never asked the one
+question that settles it: *is the address actually in your documents, and does it appear in the
+five retrieved sources?* Recorded as an open question needing the reporter's data, **not** as a
+finding, and deliberately not pursued on this branch.
+
+**Left open, not recorded as fact.** The reporter was asked whether `Temperature` is the actual
+cause, since several recent OpenAI reasoning models reject or ignore it. No answer yet — an open
+question awaiting the reporter, not a finding of this phase.
+
+**What this phase did not do.** It changed no production behaviour — `SystemPrompt`'s own code is
+untouched; every commit is `test`, `fix(tests)`, `fix(testing)`, or `docs`. It does not resolve
+issue #56 pending the `Temperature` question. It was never one of the milestone's numbered
+`features.md` items, the same status Phases 4.9–4.11 had; this entry does not itself update the
+DoD's "all planned phases complete" tally above, which as of this phase's close still reads
+"6 of 11 as of 2026-08-05" and does not mention Phase 4.11 either, despite 4.11 having completed
+2026-08-06 — a pre-existing gap this phase found but did not fix, being documentation-only and out
+of that scope.
+
+### Phase 4.2: Parser Registration Ownership [status: complete]
+**Goal:** Originally "Options Alignment & Validation." Arrived carrying five workstreams
+re-pointed into it by four earlier phases — parser replacement, `message/rfc822` ownership,
+options homes, connector deferrals, and repo-wide XML documentation — and the phase's own
+measurement (design §0) split two of them back out: documentation and connectors share nothing
+with the rest and needed their own scoping. What remained, and what this phase actually built, is
+one coherent subject: **who owns a content type, and how that is declared**, so that two parsers
+claiming one is either a loud startup error or an explicit, working override — never a silent one.
+The general `IOptions`/`ZeroAlloc.Validation` alignment the original name promised is **not** part
+of what shipped; see the open debt above.
+**Backlog items:** parser replacement (originally routed "with 4.1"), `message/rfc822` ownership
+(Phase 3.11's deliberate non-decision), options homes (`CostBudgetOptions.DatabasePath`) — three of
+the five re-pointed workstreams; documentation and connectors were split out, unscheduled.
+**Plan:** `docs/plans/2026-08-07-parser-registration-ownership-design.md` +
+`2026-08-07-parser-registration-ownership-implementation.md`
+**Completed:** 2026-08-08 (`cd07bedf`, `9cd89c73`, `0d735ddc`, `cec11537`, `590ce6fd`, `1668267e`,
+`5acb3740`).
+**The measurement that moved the phase, and its own first version was wrong.** The intended
+centrepiece was a convenience API for replacing a built-in parser. Measuring first found that
+`ParserClaim` — the guard that makes two parsers claiming one content type a startup error — is
+silent for most of this repository's parsers, and that the replacement API is the vocabulary that
+silence is missing, not a convenience layered on top of it. **The first pass at that measurement
+overstated it in three ways, corrected in design §1.1 rather than quietly rewritten, because the
+wrong version was persuasive and nearly reached implementation**: it counted "11 parsers, ~22
+content types, declare nothing" as a coverage hole, when seven of those eleven register through
+`AddParser<T>()`, a path `ParserClaim`'s own remarks already document as unable to declare
+anything — `CanParse` is a predicate, not an enumeration, and probing it against a guessed list of
+content types is "a worse mechanism than an undetected collision." It counted **two** live silent
+collisions, when `CsvDocumentParser` carries no `[Singleton]` attribute and nothing registers it by
+default, so its `text/csv` overlap with `QAPairsDocumentParser` is conditional on a caller adding
+it explicitly — only `…spreadsheetml.sheet`, between `ExcelDocumentParser` and
+`QAPairsDocumentParser`, was live for everyone. And it counted a third collision, `image/jpeg`
+between the two Vision parsers, that did not exist — the string in `VideoDocumentParser` is the
+MIME type of an extracted video *frame*, not a `CanParse` claim, found by grepping whole files
+rather than reading `CanParse` bodies. **The one genuine oversight the corrected measurement found:
+Vision.** It registers two parsers through `AddSingleton<IDocumentParser>`, the mechanism Archive,
+Email and this repository's own Chunking.Templates use *with* claims, and declared none — an
+inconsistency with its own peers, not the documented `AddParser<T>()` limit. The pattern behind all
+three overstatements was the same: a count taken from text matching, then reasoned about as though
+it had been read. *Grepping a file is not reading a method.*
+**Why the ordering is load-bearing (design §2).** Closing the coverage gap before QA-pairs chunking
+can declare an override would turn `UseQAPairsChunking()` into a startup error for anyone also
+using `Rag.NET.Parsers.Office` — the `…spreadsheetml.sheet` overlap is legitimate (a caller who
+asked for QA-pairs chunking wants that parser to win), but the claim model had no vocabulary for a
+deliberate override. So the seven tasks ran API-first: **Task 1** added
+`RagBuilder.AddParser<TParser>(replaces:, replacesTypeNames:)`, which removes the replaced parser's
+`IDocumentParser` descriptor and its `ParserClaim` together rather than only silencing the conflict
+— silencing alone would not have been enough, since selection takes the first registered match and
+built-ins register first. **Task 2** had `UseQAPairsChunking()` adopt it, declaring `text/csv`
+against `CsvDocumentParser` and `…spreadsheetml.sheet` against `ExcelDocumentParser` by type *name*
+(`replacesTypeNames`), so overriding a parser from an optional package that may not be installed is
+a no-op rather than a compile-time dependency on it. **The behaviour change this is**: enabling
+QA-pairs chunking now means plain CSVs (and Excel workbooks, with Office installed) are parsed as
+QA pairs, because that is what the override says — the opposite of the old default, where core's
+`CsvDocumentParser` silently won and `QAPairsDocumentParser` never ran. **Task 3** closed the
+coverage gap structurally rather than site by site: an opt-in `IDeclaresContentTypes` interface
+lets a parser enumerate the content types its own `CanParse` accepts, and `AddParser<TParser>()`
+declares one `ParserClaim` per type automatically when `TParser` implements it — adopted by all
+nine parsers that can state their set honestly (Audio, Epub, Html, Word, PowerPoint, Excel, Pdf,
+Image, Video), closing Vision's oversight along with the rest. `IDocumentParser` and `CanParse`
+themselves are unchanged; a parser that cannot enumerate its types honestly simply does not opt in
+and keeps today's documented invisibility. Declaring claims from a runtime type with no compile-time
+constraint needed this repository's first `MethodInfo.MakeGenericMethod` call — recorded as a new
+debt, not a defect (see below). **Task 4** added `ParserClaimCoverageTests`
+(`Rag.NET.RepoConventions.Tests`) holding Task 3's declarations to `CanParse` in both directions,
+plus the rule that no parser may claim `application/octet-stream` — watched red by deliberately
+mismatching one parser's declared list, confirmed the failure named that parser, then reverted.
+**Task 5** retired `EmailTemplateDocumentParser` outright: it duplicated `Rag.NET.Parsers.Email`'s
+strictly more capable `EmailDocumentParser`, and `UseEmailChunking`'s own remarks already recorded
+that the chunking strategy "does not care which parser produced" its sections. `UseEmailChunking`'s
+`registerParser` parameter is removed with it — **breaking change**: `.eml` ingestion alongside
+this chunking strategy now needs `Rag.NET.Parsers.Email` (`AddEmailParser()`) added separately —
+and `MimeKit` drops from `Rag.NET.Chunking.Templates`, verified in the packed nuspec's
+`<dependencies>` per Phase 4.7's own lesson that a floating reference freezes into the nuspec
+regardless of intent. `QAPairsDocumentParser` was deliberately not touched — `CsvHelper` and
+`ClosedXML` stay, because `QAPairsChunkingStrategy` reads the answer out of `DocumentSection.Heading`
+as a documented internal contract with that parser, and an earlier design that proposed retiring
+both templates on symmetry was wrong. **Phase 4.7's Task 10 is therefore partly complete, not
+finished** — only `MimeKit` drops. **Task 6** removed `CostBudgetOptions.DatabasePath`,
+`DefaultDatabasePath`, and the `UseCostBudgeting()` guard that turned a non-default value into a
+runtime error, together — after removal the compiler is the error, which is strictly better than
+the runtime one it replaces. **Task 7** (this entry, and the guide-page updates it references) is
+documentation only.
+**Three new debts found during implementation, all recorded above rather than fixed inline**:
+`AddParser<T>(replaces:)` cannot reach a factory-registered parser (`ImplementationType` is `null`
+for it) — the same silent-no-op shape this phase set out to remove, now narrowed rather than
+closed; the first `MakeGenericMethod` call in `src/`, with no AOT/trim analyzer enabled anywhere to
+have caught it, routed to Phase 5.1 as the first phase that measures Native AOT startup time; and
+`ParserClaimCoverageTests` reading `ContentTypeMap`'s private `s_map` field by reflection, because
+the map has no public enumeration surface — fails loudly if the field is renamed, but the coupling
+is real.
+**Definition-of-Done honesty.** This phase closes three of the five workstreams re-pointed into
+it — parser replacement, `message/rfc822` ownership, `CostBudgetOptions.DatabasePath` — and
+explicitly does **not** close the general `IOptions`/`ZeroAlloc.Validation` alignment its original
+name promised (`features.md:1117` stays unchecked; recorded as its own open debt above rather than
+implied done by this phase completing). Documentation and connectors were split out by design §0
+and are not this phase's to schedule.
 
 ### Phase 4.3: Structured Logging Enrichment [status: complete]
 **Goal:** Consistent scoped/structured logging across ingestion, retrieval, and answer generation.
@@ -2041,6 +2456,28 @@ hand-written no-op decorator **144 B**, the generated proxy **144 B**. `StartAct
 **zero** when unobserved; the extra cost either approach pays is decorator-shaped, not
 telemetry-shaped, so spans placed directly inside existing methods — this phase's approach — are
 cheaper than any proxy.
+
+**Revisited 2026-08-07 after ZeroAlloc.Telemetry v1.5.0, and declined again — for a different
+reason.** The three issues filed off the back of the evaluation above
+([#35](https://github.com/ZeroAlloc-Net/ZeroAlloc.Telemetry/issues/35),
+[#36](https://github.com/ZeroAlloc-Net/ZeroAlloc.Telemetry/issues/36),
+[#37](https://github.com/ZeroAlloc-Net/ZeroAlloc.Telemetry/issues/37)) all shipped, and they
+worked: tag expressiveness went from ~7% to ~50% of this repository's **131** hand-written tags
+across **48** spans in **30** files. (The first count taken was 68 spans and 175 tags — wrong,
+because it swept in `obj/`, where the ZeroAlloc.Rest and Mediator generators emit their own
+instrumentation. *An unfiltered grep is not a measurement either.*) What blocks adoption is no
+longer tags but **span naming**: `[Trace("name")]` sits on the interface, so every implementation
+shares one span name, and **not one traced type in this repository has an interface to itself**
+(`IRetrievalBehavior` ~23 implementations, `IIngestionBehavior` ~16, `IVectorStore` ~10). Since
+Phase 4.4 exists precisely to make Qdrant distinguishable from Weaviate, converting would undo its
+central benefit — a cleanup that made traces less informative would be a regression in a costume.
+The 21 hand-written `GetType().Name` tags are the visible workaround for that same gap. Raised
+upstream as [#53](https://github.com/ZeroAlloc-Net/ZeroAlloc.Telemetry/issues/53); full
+measurement in `docs/plans/2026-08-07-telemetry-conversion-assessment-design.md`. Note also that
+the 144 B proxy figure above is **contradicted** by v1.5.0's published benchmark, which reports
+parity at 72 B; the shapes differ (ours are `Task`-returning async interface methods, where
+wrapping allocates a second state machine) and neither number should be trusted here without
+re-measuring, which was not done because the blocker is architectural, not performance.
 **Task 5 (`6904d2c`) — the span/tag convention, decided once before any package was
 instrumented,** so nine packages did not produce nine conventions. Span names extend core's
 two-segment `ragnet.<operation>` to `ragnet.<area>.<operation>` for satellites; packages sharing
@@ -2147,13 +2584,255 @@ re-run the container-gated suites (no local Docker daemon in this session) and d
 have re-verified them independently. Full solution build: 0 warnings, 0 errors (re-verified by
 this closing pass, `--no-incremental`).
 
-### Phase 4.5: Sample Applications [status: pending]
-**Goal:** End-to-end runnable samples covering the main library scenarios.
+### Phase 4.5: Sample Applications [status: complete]
+**Goal:** End-to-end runnable samples covering the main library scenarios — which turned out to
+need the documentation site to build first, since a sample is only honest if it follows docs a
+reader can actually reach.
 **Backlog items:** Sample Applications
+**Plan:** `docs/plans/2026-08-08-docs-site-and-samples-design.md` + `2026-08-08-docs-site-and-samples-implementation.md`
+**Completed:** 2026-08-08 (**the documentation site did not build, for two independent reasons,
+and nothing had ever reported it.** `@docusaurus/core` 3.7.0's `webpack: ^5.95.0` caret resolved
+to 5.109.2, whose tightened `ProgressPlugin` schema rejects options Docusaurus itself still
+passes — and there was no lockfile, so this arrived on any fresh `npm install`, not just this one.
+Separately, 25 links across 7 pages pointed at paths that do not exist (`guide/*` and
+`reference/*` prefixes dropped, one link into the unpublished `docs/plans/`). **No CI job had ever
+built the site** — that is why neither defect was known, and why acquiring `docs.yml` mattered
+more than fixing either one: a repair with no guard rots back to exactly this state. Fixed in
+order: upgraded Docusaurus 3.7.0 → 3.10.2 (clears the `ProgressPlugin` schema mismatch), committed
+`package-lock.json` (there was none — `npm ci` could not run at all before this), fixed all 25
+links (`onBrokenLinks` left at its hard-fail default throughout — the one forbidden move this
+phase's own plan named was weakening it to `'warn'`), then added `docs.yml` to build the site on
+every pull request, modelled on `ci.yml`'s job shape and confirmed to fire on a normal PR trigger
+rather than shipped inert. **Deployment is deliberately not part of it**: the site is configured
+for `rag-net.github.io/Rag.NET/`, the repository is `MarcelRoozekrans/Rag.NET`, the `RAG-Net`
+GitHub org exists but does not hold this repository, and GitHub Pages is enabled nowhere for it
+(the Pages API answers 404) — `organizationName` was left visibly wrong rather than "fixed" to a
+plausible-but-unverified value, a decision this phase does not have grounds to make. Closes the
+`docs.yml` debt open since 2026-08-02 — see the closed "Three pieces of house furniture" entry
+above, which also carries the correction this phase made to that entry's stale renovate note: the
+Renovate GitHub App is enabled and has been opening PRs since 2026-08-05, not "still inert" as
+Phase 4.8 last recorded it.
 
-### Phase 4.6: Rag.NET CLI Tool [status: pending]
+**Samples:** `samples/Rag.NET.Sample` was the only sample, for 69 packages. Added
+`samples/Rag.NET.QuickStart`, driven by `Rag.NET.Hosting`'s `AddRagNetPipelineFromConfiguration`
+rather than hand-registering `IChatClient`/`IEmbeddingGenerator`/`IVectorStore`, so it reuses
+Phase 4.6's own startup validation instead of re-implementing it, and follows
+`docs/getting-started.md`'s flow end to end (ingest, re-ingest with `Overwrite`, retrieve, ask, ask
+streaming, delete). Defaults to a local Ollama endpoint and the in-memory store, needing no API
+key; `RagNet__*` environment variables switch it to OpenAI. Registered in `Rag.NET.slnx`,
+`IsPackable=false` like its sibling — `dotnet pack` still produces exactly 69 packages.
+**Following the getting-started page while building this is what surfaced the documentation
+defects below** — the phase's charter, and the finding worth more than the sample itself.
+
+**Documentation defects found and fixed, all re-verified against the pinned packages before
+editing, not taken on trust:**
+1. `docs/getting-started.md` step 2 — `OpenAIClient.AsChatClient(...)`/`.AsEmbeddingGenerator(...)`
+   do not exist on `Microsoft.Extensions.AI.OpenAI` 10.8.3 (CS1061). Fixed to the real chain,
+   `.GetChatClient(model).AsIChatClient()` / `.GetEmbeddingClient(model).AsIEmbeddingGenerator()`
+   — the pattern `Rag.NET.Hosting`, `Rag.NET.Cli`, `Rag.NET.Mcp.Tool` and `Rag.NET.Sample` already
+   use.
+2. `docs/getting-started.md` step 3 and `docs/guide/vector-stores.md`'s Azure AI Search example —
+   `using Rag.NET.VectorStores.PgVector;` / `using Rag.NET.VectorStores.AzureAISearch;` name the
+   **package id**, not the namespace (CS0234); the namespaces are `Rag.NET.PgVector` and
+   `Rag.NET.AzureAISearch`. Both fixed; every other `using Rag.NET.*` line in `docs/` (excluding
+   the unpublished `docs/plans/`) was checked against its package's actual namespace declarations
+   in `src/` — `choosing-packages.md`'s `Rag.NET.DataProviders.SharePoint`/`Rag.NET.Qdrant` and
+   every other occurrence already matched; no further instances of this defect exist.
+3. **A third compile defect this phase found, not previously reported**: even with (1) and (2)
+   fixed, `getting-started.md`'s step 1 package list (`Rag.NET`, a vector store, a parser) is
+   missing `Microsoft.Extensions.DependencyInjection`, `Microsoft.Extensions.AI` and
+   `Microsoft.Extensions.AI.OpenAI` — `Rag.NET` itself references only the `Abstractions` split of
+   the AI package, so `ServiceCollection`, `AddChatClient`/`AddEmbeddingGenerator`, and any OpenAI
+   client type are all unavailable without installing them explicitly, exactly as
+   `samples/Rag.NET.Sample`'s own csproj already does. Verified by compiling the whole
+   getting-started flow (steps 1 through 8, plus the SharePoint/Qdrant worked example in
+   `choosing-packages.md`) against `ProjectReference`s to the real `src/` projects in a throwaway
+   project — 0 errors after adding the three packages to step 1, and choosing-packages.md's own
+   snippet compiled unmodified.
+4. `docs/guide/choosing-packages.md` said "Rag.NET ships as 66 packages" — stale; the real count
+   is **69** (`ExpectedPackageCount`, `Rag.NET.PackageValidation.Tests`, and an actual
+   `dotnet pack` at this close). Phase 4.6 added `Rag.NET.Hosting` and `Rag.NET.Cli` after that
+   line was written. The same stale count, found by the same sweep, appeared four more times in
+   `docs/reference/ci.md` ("packs the 70 shippable packages", "70 `.nupkg` plus 70 `.snupkg`", "a
+   push that dies partway through 70 packages", "none of the 70 IDs is reserved") — all describing
+   `ci.yml`'s current behaviour in the present tense, not a dated historical record, so all four
+   corrected to 69 as well. (`docs/planning/ROADMAP.md`'s own historical "70 packages, at the
+   time" notes inside already-closed phase entries were left alone — those are dated records of
+   what was true then, not live claims.)
+5. `docs/reference/ci.md`'s Renovate section carried the same stale "inert until the Renovate
+   GitHub App is enabled" claim as the ROADMAP debt entry above — corrected with the same
+   evidence (five `renovate/*` branches, PRs merged since 2026-08-05).
+
+No further instances of `.AsChatClient(`/`.AsEmbeddingGenerator(` exist anywhere under `docs/`
+outside `docs/plans/` (which is not part of the published site — Task 2 of this phase's plan
+established that a link into it can never resolve, for the same reason its code is not verified
+here). `npm run build` re-run after every documentation edit in this phase: still succeeds, 0
+broken links, the only warning being the pre-existing `onBrokenMarkdownLinks` deprecation notice
+(recorded as a debt below).
+
+**`Rag.NET.Security.AspNetCore` off `VerifiedBy: none`** (`398c595f`) — see the closed "Two
+packages have never been exercised by any test at all" debt entry above for the full account.
+Unlike Phase 4.6's `Rag.NET.Mcp.Tool`, running the package's tests found **no production defect**:
+the two types do what their names say. **This was the last package at `none`** — the release gate
+this milestone's Definition of Done has required since Phase 4.0 is now genuinely satisfied, and
+the DoD box above is ticked on that verified evidence, not assumed.
+
+**New debts recorded, all with origin and no owning phase yet — see the follow-up debts list at
+the top of this file for the full entries:** nothing compiles documentation code snippets, so two
+of getting-started's six numbered steps were broken and every existing guard (including this
+phase's own `docs.yml`) passed anyway; `npm audit` reports 25 vulnerabilities (6 moderate, 19
+high) in the site's build-time tooling, measured after the Docusaurus upgrade; `docs/index.md`'s
+Quick Links point at `docs/plans/` as inline code rather than a Markdown link, so no link checker
+catches that it resolves to nothing published; and `onBrokenMarkdownLinks` is a deprecated config
+key (`markdown.hooks.onBrokenMarkdownLinks` is its replacement), a cosmetic warning on every build.
+
+**Counts:** `Rag.NET.Tests` **1180**, unchanged (this phase touched documentation and one new test
+project, not `Rag.NET.Tests` itself). `Rag.NET.RepoConventions.Tests` **48 + 1 skip → 49 passing, 0
+skipped** (the `Rag.NET.Security.AspNetCore` closure — confirmed by an independent re-run at this
+close, not carried over from the commit message). `Rag.NET.PackageValidation.Tests` **20**,
+unchanged in count; **69 packages** produced by a real `dotnet pack` at this close (69 `.nupkg`,
+69 `.snupkg`, counted directly), matching `ExpectedPackageCount`.
+**Full solution build re-run at this close:** `dotnet build Rag.NET.slnx -c Release
+--no-incremental` — 0 warnings, 0 errors. `npm run build` — succeeds. Docker/secrets/LLM-gated
+test tiers were **not** re-run in this session (no local Docker daemon confirmed, no secrets
+configured) — the milestone DoD's "All test projects passing" box stays open for that reason,
+recorded rather than assumed clean, and "Full solution builds 0 warnings / 0 errors" is left open
+on the same conservative basis even though this phase's own `--no-incremental` run came back
+clean: a milestone-close verification deserves its own dedicated pass, not a side effect of a
+documentation phase's rebuild.
+
+**Closes:** the `docs.yml` half of the "Three pieces of house furniture" debt (the whole entry now
+closed, above); the `Rag.NET.Security.AspNetCore` half of the "two packages never exercised" debt
+(the whole entry now closed, above); Milestone 4's "No package declares `VerifiedBy=none`" DoD box
+(ticked above, verified); Milestone 4's "All planned phases complete" DoD box (ticked above,
+resynced — this was the 13th and last of 4.0–4.12). **Opens:** four new debts, listed above and in
+the follow-up debts list, none silently absorbed.)
+
+### Phase 4.6: Rag.NET CLI Tool [status: complete]
 **Goal:** `dotnet tool` for ingest/query/evaluate against a configured pipeline.
 **Backlog items:** Rag.NET CLI Tool
+**Plan:** `docs/plans/2026-08-08-executable-configuration-design.md` + `2026-08-08-executable-configuration-implementation.md`
+**Completed:** 2026-08-08 (**scoped as "build a CLI"; became "make an executable configurable" the
+moment the repository's one existing `dotnet tool` was measured before writing a second one.**
+`Rag.NET.Mcp.Tool` could not work as published, in three separate ways, all hidden behind
+`<VerifiedBy>none</VerifiedBy>`: **(1) no pipeline** — `RagMcpTools(IRagPipeline)` needs one from
+DI, `AddRagNetMcpServer()` never registered one, and `IConfiguration` appeared nowhere in either
+project, so every MCP tool call failed; **(2) no transport** —
+`McpServerBuilder.WithStdioTransport()`/`WithHttpTransport()` set fields on an
+`McpTransportOptions` singleton nothing read: HTTP threw at `app.MapMcp()`, and stdio — the
+default, and what every MCP client uses — silently started a bare Kestrel web server instead of
+speaking MCP; **(3) logging to stdout**, the exact channel MCP JSON-RPC travels on, so even a
+fixed transport would have had its protocol stream corrupted by log lines. `WithApiKey()` was
+equally fake — nothing read it either. **All three were found by running the tool**, which nobody
+had ever done — the ledger was doing its job by recording an honest `none`; nothing was reading
+the record. That is this phase's transferable lesson, not the three bugs individually.
+
+Three decisions collapse the provider matrix rather than widening it (design §1): one
+OpenAI-compatible client (`Microsoft.Extensions.AI.OpenAI`) covers OpenAI, Azure OpenAI,
+OpenRouter, Ollama and LM Studio; a bounded three-kind vector-store set (`InMemory`, `Qdrant`,
+`PgVector`) with real fixtures in this repository; anything else is served by hosting
+`Rag.NET.Mcp` directly, stated as the designed answer rather than an apology (§1.3).
+
+**Task 1 (`802ef0ea`) adds `Rag.NET.Hosting`, a new, deliberately non-packable seam package** —
+`AddRagNetPipelineFromConfiguration(IServiceCollection, IConfiguration)` binds a `RagNet` section
+(`ChatClient`, `Embeddings`, `VectorStore`; `VectorDimensions` sits under `Embeddings`, not the
+store, because it is a property of the embedding model every store must agree with) and registers
+a full `IRagPipeline`. **Not in `Rag.NET.Mcp`** — that package is what a user references to host
+MCP tools in their own application (design §1.3's path), and putting Qdrant, PgVector and
+`Microsoft.Extensions.AI.OpenAI` into it would force those on every such user, the 19 MB mistake
+in miniature and the exact thing Phase 4.7 existed to undo. `Rag.NET.Mcp.Tool` references
+`Rag.NET.Hosting`; so does the CLI; `Rag.NET.Mcp` does not. Ships at `VerifiedBy: unit` with tests
+in the same commit — a new package arriving at `none` is what this phase exists to stop repeating.
+
+**Task 2 (`8cdba242`)** makes a misconfigured tool fail while the host is being built rather than
+the first time an MCP client invokes a tool and hits an unresolvable-service error: every
+validation message names both the setting and the `RagNet:…` key that fixes it (an unknown
+`VectorStore.Kind`, missing kind-specific settings, a missing chat/embeddings endpoint or model,
+an absent/non-positive `VectorDimensions`), aggregated into one exception rather than a
+one-error-at-a-time loop. What cannot be validated — whether the configured `VectorDimensions`
+matches what the endpoint actually returns — is documented rather than faked; that mismatch
+surfaces as a vector-store failure at first ingest.
+
+**Task 3 (`29591b5d`)** makes the `InMemory` default loud: resolving `IVectorStore` for an
+explicit or defaulted `InMemory` kind logs a warning naming the consequence (every ingested
+document is lost when the process exits) and the fix. The guard against repeating exactly the
+silence `UseCostBudgeting()`'s in-memory cost ledger already cost this repository once, with real
+money behind it.
+
+**Task 4 (`8762c181`) moves `Rag.NET.Mcp.Tool` off `VerifiedBy: none`** — see the debts list
+above for the ledger arithmetic. What `VerifiedBy: unit` does **not** cover, stated rather than
+implied: choosing between the stdio and HTTP hosts, and actually running either one — launching a
+process or a Kestrel listener is not a unit-testable computation.
+
+**Task 5 (`11dc7810`) wires `Program.cs` to the seam** and deletes the impossible header comment
+("Edit this file after install") — it cannot be followed; the file is compiled into the installed
+tool. Replaced with what is true now: configure via `appsettings.json` or environment variables,
+host `Rag.NET.Mcp` yourself for providers outside the bounded set. A sample `appsettings.json`
+ships alongside the installed binaries, confirmed by unzipping the packed `.nupkg` rather than
+assumed — Phase 4.7's own "intent and artefact differ" lesson, applied again. **Running the built
+tool for the first time — this task, not a separate audit — is what found Task 5a.**
+
+**Task 5a (`9dd5b4e6`, a `BREAKING CHANGE`, not in the original plan) makes transport registration
+real.** `AddRagNetMcpServer()` now returns the SDK's own `IMcpServerBuilder` as
+`McpServerBuilder.Server`; `WithStdioTransport()` calls the SDK's `WithStdioServerTransport()`
+directly (available through `Rag.NET.Mcp`'s existing `ModelContextProtocol` reference), while the
+real `WithHttpTransport()` — living in `ModelContextProtocol.AspNetCore`, which `Rag.NET.Mcp`
+deliberately does not reference — is called by the consumer through `.Server` instead of through a
+wrapper that package cannot honestly provide. The broken no-op methods are deleted outright rather
+than left as a silent trap, meeting the plan's non-negotiable: **a transport method that silently
+does nothing must become impossible — met by making it a compile error** for any caller still
+relying on them. `Program.cs`'s stdio path also moved off `WebApplication` (which was starting
+Kestrel even for stdio) onto a plain `Host.CreateApplicationBuilder` host, with console logging
+redirected to stderr. Verified by running the built `ragnet-mcp.exe` directly: stdio produced
+exactly one JSON-RPC response line on stdout with all logging on stderr and no port bound; HTTP's
+`/mcp` returned 200, and the `X-Api-Key` middleware genuinely rejected/accepted requests. Tests
+assert what the SDK registered into `IServiceCollection`, not the package's own flag — asserting
+the flag is exactly what let the original bug ship undetected.
+
+**Task 6 (`55da2827`) decided the package shape** — recorded in full above, in this same debts
+list: re-measured at **4.97 MB, 55 entries**, 2.7× the pre-repair 1.87 MB, and judged intended.
+
+**Task 7 (`2c2e6d61`) builds `Rag.NET.Cli`, the second consumer of the seam, not a second
+scaffold**: `ragnet ingest <path> [--overwrite]` and `ragnet query "<question>" [--top-k N]`
+against a pipeline built by `AddRagNetPipelineFromConfiguration` — the same configuration, the
+same startup validation, the same `InMemory` warning. Command handlers (`CliArguments`,
+`IngestCommand`, `QueryCommand`) are `internal` types reachable from `Rag.NET.Cli.Tests` via
+`InternalsVisibleTo`, pure computations over an already-resolved `IRagPipeline` — the same shape
+`Rag.NET.Mcp.Tool`'s `ProgramArguments` established, for the same reason: a top-level program's
+local functions compile `private` onto its generated `Program` class and are unreachable from any
+test assembly. Ships at `VerifiedBy: unit` with 35 tests **landing in this same commit**, not
+added later — the arriving-at-`none` mistake this phase exists to stop repeating. `Rag.NET.Cli` is
+plain `Microsoft.NET.Sdk`, not `.Sdk.Web`: it never accepts an inbound connection, so there is no
+reason to carry the ASP.NET Core shared framework. Added to `Rag.NET.slnx`, confirmed present.
+`ragnet evaluate` prints its deferral reason to stderr and exits non-zero rather than half-working
+— see the new debt below. The published package total moved **66 → 67**
+(`ExpectedPackageCount`, `Rag.NET.PackageValidation.Tests`); `Rag.NET.Hosting` is deliberately
+**not** packable — an internal wiring seam, referenced by `ProjectReference`, never published.
+
+**Two traps recorded for whoever next copies this phase's pattern, neither a defect in what
+shipped:** `Host.CreateApplicationBuilder(args)` throws on positional arguments — the default
+command-line configuration provider expects `--key value` pairs, so `Rag.NET.Cli`'s `Program.cs`
+deliberately builds with `HostApplicationBuilderSettings` and `Args` left unset, keeping its own
+bare-path/unquoted-question arguments out of that provider entirely while appsettings.json and
+environment variables still layer in normally. And ErrorProne.NET's EPC13 flags any type named
+`Result`, regardless of namespace — not just `Rag.NET`'s own `Result<T, TError>` — which is why
+`IngestCommand`/`QueryCommand` return an `Outcome`, not a `Result`, a repo-wide gotcha rather than
+a local naming choice.
+
+**Counts:** `Rag.NET.Hosting.Tests` **27**, `Rag.NET.Mcp.Tests` **11** (Task 5a rewrote these to
+assert what the SDK registered, not the package's own flag), `Rag.NET.Mcp.Tool.Tests` **16**,
+`Rag.NET.Cli.Tests` **35** — four new or newly-tested projects; `Rag.NET.Tests` **1180** and
+`Rag.NET.RepoConventions.Tests` **48 + 1 skip**, both unchanged baselines throughout.
+
+**Closes:** the `Rag.NET.Mcp.Tool` half of the "two packages never exercised" debt (only
+`Rag.NET.Security.AspNetCore` → 4.5 remains open, both above) and the `Rag.NET.Mcp.Tool` package
+shape debt (decided at Task 6, above). **Opens, and left open with a stated reason:** `ragnet
+evaluate` needs a dataset file format that does not exist anywhere in this repository yet, and
+`Rag.NET.Cli`/`Rag.NET.Mcp.Tool`'s `unit` coverage does not reach host selection or process-level
+behaviour — both recorded above, neither faked closed here. **No Definition-of-Done box is ticked
+by this entry**: Milestone 4's "All planned phases complete" stays open (4.5 remains pending) and
+"No package declares `VerifiedBy=none`" stays open (`Rag.NET.Security.AspNetCore`) — both updated
+above to say so rather than left stale.)
 
 ## Milestone 5: Evaluation Depth [status: pending]
 **Goal:** Extend the evaluation programme along the axes Milestone 3 deliberately did not take:
@@ -2238,7 +2917,7 @@ shape, though that box is still here doing its share):
 > everything a user installs; the harness half does not, and repeating the constraint
 > unqualified would be false.
 
-### Phase 5.1: Library Performance Comparison [status: pending]
+### Phase 5.1: Library Performance Comparison [status: measurement landed 2026-08-09; §6 decided — publication is the remaining work]
 **Goal:** Compare **cost** across the Phase 3.14 comparators — indexing throughput (docs/sec),
 query latency p50/p99, allocations per query, Native AOT startup time, RSS. (Not a features.md
 row — the only item the handover proposes that Phase 3.14 did not touch; it calls this table
@@ -2262,6 +2941,130 @@ in-process on its own side of the run-file boundary, the boundary excluded), or 
 tables labelled non-comparable, the way the `+BM25 hybrid` row is labelled internal. Publishing
 quietly what 3.14 refused to publish is the failure mode; the DoD's confound criterion holds it.
 
+**2026-08-09 — the measurement half landed; nothing is published.** Design:
+`docs/plans/2026-08-09-library-cost-comparison-design.md`. Plan:
+`docs/plans/2026-08-09-library-cost-comparison-implementation.md`.
+
+The hazard above dissolves once measured properly, and the reason is architectural: **there is no
+subprocess in the measured path.** Python entrants are run out of band and emit a run file and
+nothing else; the .NET side reads that file back. 3.14's boundary is a *file*, not a pipe. So each
+ecosystem now times itself in-process on its own side of it and emits a **timings sidecar**
+(`<run-file>.timings.json`) carrying raw per-query latencies — never its own percentiles, because
+an entrant reporting its own p99 would let five definitions of "p99" into one table.
+`LatencyStatistics` computes them once, nearest-rank, for everyone. A guard scans `benchmarks/`
+and the BEIR integration tests and fails any file that both times and launches a subprocess — the
+design's central claim, checked rather than asserted. A **Python-written format fixture** is read
+back by the .NET reader in a test, because the two sides disagreeing about the format is the risk
+nothing else would have caught.
+
+**What was left explicitly unbuilt: the table.** The design's §6 asks for an explicit choice
+between a cross-ecosystem latency table and per-ecosystem tables labelled non-comparable, and says
+in as many words that it must not be inherited from a design document. Everything above is
+required identically under both, so it was built; the table was not, and merging the design was
+not treated as making the choice.
+
+Three findings, each of which the decision should weigh:
+
+- **The old `elapsed` was not a latency measurement.** One `time.monotonic()` span covering
+  `entrant.build`, the whole query loop, the run-file write *and* the self-line re-read of the
+  file's bytes — printed, never emitted as data. It conflated indexing with query latency. Any
+  figure derived from it would have been wrong in a way no test could have shown.
+- **Indexing is measured with the embedding cache warm**, so it is index construction with
+  embedding already paid for — not "the cost of indexing", which is mostly embedding. Defensible,
+  and the only thing measurable consistently across entrants sharing one pinned embedder, but the
+  sidecar now carries the cache hit/miss counts so a cold run is visibly different *in the data*
+  rather than in a caveat someone might write later.
+- **A second confound the design did not identify, and the more serious one: the indexing spans do
+  not bracket the same work.** `entrant.build` includes each Python library's own chunker, while
+  the .NET rows receive their units pre-built — `BeirHarness.OneChunkPerDocument(...)` is called by
+  the *caller* and passed in, so it sits outside the span. That asymmetry is not incidental: it is
+  the parity protocol 3.14 chose so that *quality* would be comparable. The consequence is that
+  **a cross-ecosystem indexing row would partly measure a protocol difference rather than a
+  library one**, while the per-query latency rows — both bracketing the retrieval call and
+  excluding pooling — are clean. So the two rows are not equally publishable, and §6's decision
+  may reasonably differ between them.
+
+**§6 decided 2026-08-09: split by row.** Latency (p50/p99) publishes as a **cross-ecosystem**
+table, because those spans genuinely bracket the same work with the boundary excluded. Indexing
+publishes **per ecosystem, labelled non-comparable**, the way the `+BM25 hybrid` row is labelled
+internal — because of the third finding above. The decision follows the evidence per row rather
+than applying one rule to both, which is what the third finding made possible; before it, the
+choice looked like a single call about the whole table.
+
+**2026-08-09, later the same day — the first real run found the measurement was fiction, and the
+third finding above is retracted.**
+
+The harness was run for the first time. **Every timed span contained disk I/O**: both embedding
+caches read one file per text (`VectorCache.try_read` → `path.read_bytes()`;
+`EmbeddingCache.File.ReadAllBytes`), ~5,500 reads inside the indexing span. Identical runs
+therefore differed by **23×** on OS page-cache state alone — LangChain SciFact indexing measured
+**55.2 s** cold and **2.4 s** hot, same corpus, same code, same 5,505 hits / 0 misses.
+
+**This retracts the "LlamaIndex indexes 14× faster than LangChain" reading recorded above.** It
+was an artefact of run order: LangChain ran first against a cold page cache, LlamaIndex third
+against a hot one. After the fix the ordering **reverses** — LangChain 0.86–0.87 s, LlamaIndex
+2.30–3.70 s. No library conclusion survived from the pre-fix numbers, and none should have been
+drawn from a single run.
+
+Fixed by prefetching every vector the run needs into memory **before any clock starts**, on both
+sides, with a cold cache failing loudly rather than quietly paying costs no other run paid.
+Verified by the experiment that matters: LangChain indexed 2.1 s, a full `--no-incremental`
+Release rebuild churned the page cache, and it then indexed **1.3 s** — the perturbation that was
+previously worth 23× is now worth nothing.
+
+**The guard that would have caught it: `CostReproducibility`.** No cost figure may come from a
+single run. Two or more repeats, a hard failure above **3×** on indexing seconds or p50, and the
+spread is **always reported even when it passes** — an arbitrary threshold that quietly passes at
+1.9× is the kind that gets ignored, so the visible spread is the real protection and the bar is a
+backstop. The bar is set from measured numbers: 1.4× honest back-to-back jitter, 2.2× when
+deliberately disturbed, 23× for the defect. **p99 is reported but deliberately not gated** — at
+these sample counts it rides on one to three tail samples, and two healthy LlamaIndex runs
+differed 2.6× from tail noise alone.
+
+Two further defects surfaced while running it:
+
+- **The LlamaIndex entrant was broken on `main`** and nothing could have reported it. nltk 3.10.1
+  began blocking any nltk-initiated import resolving under the working directory, and `.venv`
+  lives under the project directory, so the entrant failed for any normal invocation. A dependency
+  update had silently removed one of the five comparators; these runs are manual and gated, so no
+  check could fail. `run_entrant.py` now bootstraps its own `sys.path` and a neutral cwd.
+- **The gate could only judge the Python rows.** Both .NET entrants called the non-indexed
+  `TimingsSidecar.Write`, so a second run overwrote the first and there was nothing to compare —
+  a guard covering half the data while reading as coverage. `RAGNET_BEIR_RUN_INDEX` fixes it, and
+  `RepoConventions`' `EveryGateVariableIsSatisfiableSomewhereWrittenDown` caught the new variable
+  being undocumented within one test run.
+
+**First gated measurement — SciFact, two runs per entrant, all five passing.** Spreads shown
+because the point is that they are shown:
+
+| Entrant | Indexing | p50 | p99 |
+|---|---|---|---|
+| `ragnet-control` | 0.02–0.03 s (×1.71) | 5.6–9.5 ms | 9.5–10.7 ms |
+| `semantic-kernel` | 0.04–0.05 s (×1.14) | 2.6–3.1 ms | 3.5–4.5 ms |
+| `langchain` | 0.86–0.87 s (×1.01) | 96.3–109.2 ms | 140.3–163.9 ms |
+| `llamaindex` | 2.30–3.70 s (×1.61) | 90.7–102.8 ms | 186.2–193.7 ms |
+| `haystack` | 1.15–1.21 s (×1.06) | 104.5–108.1 ms | 181.0–215.0 ms |
+
+**The caveat that must travel with the latency column, or it misleads.** The ~20× gap is a
+comparison of **default in-memory stores**, and for the Python entrants the default is a
+reference implementation nobody runs in production — LangChain's `InMemoryVectorStore` and
+LlamaIndex's `SimpleVectorStore` scan candidates in Python-level loops. *"LangChain is 20× slower"*
+is false; *"LangChain's default in-memory store is 20× slower than Rag.NET's"* is what was
+measured. 3.14's "at their defaults" protocol is what makes the row meaningful and is also what
+makes the unqualified claim wrong, so the qualification belongs in the table, not a footnote.
+
+**Still not published, and now for a second reason.** Only SciFact is measured; ArguAna and FiQA
+have no repeat runs. And every figure above comes from a shared machine that was in use during
+the runs — the gate makes that visible rather than fatal, but §2.2 requires one machine in one
+session, so the page must say which machine and that it was not idle.
+
+This is the first cross-ecosystem cost figure this repository will publish, and it is exactly what
+3.14 declined to publish — so the latency table must carry, on the page, what §2.2 already states:
+that interpreter and runtime startup are excluded by construction, that allocations-per-query and
+AOT startup are .NET-only and publish as an internal table, and that every row comes from one
+machine in one session with the caches warm. **Remaining work is publication only**; the
+measurement, the percentile definition and the boundary guard all landed.
+
 ### Phase 5.2: Multi-Hop Retrieval [status: pending]
 **Goal:** Measure multi-hop retrieval — HotpotQA, MuSiQue, 2WikiMultiHopQA, MultiHop-RAG. (Not a
 features.md row — evaluation depth past single-hop BEIR.)
@@ -2275,8 +3078,90 @@ genuinely open is that **no benchmark has ever measured it**, and multi-hop is w
 earn or lose its keep. **MuSiQue is described as the hardest and least gameable of the four**,
 which is what makes it the one to trust when the numbers disagree.
 
+**2026-08-10 — "no benchmark has ever measured it" stopped being a scheduling note and became a
+correctness problem.** The dead-settings sweep (#108) found, in `Rag.NET.GraphRag` alone:
+
+- **`GraphRagOptions.EntityTypes` and `.RelationshipTypes` did nothing.** Documented as
+  constraining extraction; the two declarations were the only occurrences in `src/`. Every run
+  since the package shipped used open extraction regardless of configuration. Implemented in
+  #112.
+- **`GraphRagRetrievalOptions.Mode` is never read**, and `GraphRagRetrievalMode.Auto` — documented
+  as *"LLM classifies the query and routes to Local or Global automatically"* — has no
+  implementation. Which search runs depends on which behaviors are registered. Open as #104.
+- Three more settings would have silently disabled or corrupted search (`LocalSearchDepth` or
+  `LocalTopEntities` at zero; `PageRankWeight` outside `[0, 1]` giving one blend term a negative
+  coefficient; `GlobalBatchSize` at zero hanging global search in an infinite batching loop).
+  Validated in #103.
+
+**None of that could have survived a benchmark run**, and none of it was found by tests, review or
+use — it was found by asking which public settings are never read. A package marked `✅ Done`,
+carrying a `Rag.NET.GraphRag` NuGet package about to be published, had three documented behaviours
+that did not exist.
+
+So this phase's GraphRAG item is no longer "measure it to see whether it earns its keep". It is
+**"establish that it works at all"**, and the two questions want different things:
+
+1. **Does it function?** A small, cheap, deterministic run that proves entity extraction, community
+   detection and both search paths produce sensible output on a known corpus. This does not need
+   MuSiQue, a published baseline, or a comparable number — it needs to exist and to fail loudly if
+   the pipeline stops working. It is also what would have caught all three defects above.
+2. **Does it help?** The comparative question the phase was written for: GraphRAG against the dense
+   baseline on multi-hop, where the mechanism should show lift if it is going to.
+
+**(1) should not wait for (2).** MultiHop-RAG is the cheapest honest home for it — 609 articles and
+a real shared corpus, per the licence table below — where HotpotQA's 5.23M-document corpus makes
+the comparative run expensive enough to keep deferring. Landing (1) against MultiHop-RAG turns
+GraphRAG from "shipped and unverified" into "shipped and exercised", which is the claim
+`features.md` is currently making on its behalf.
+
+**Until (1) exists, `features.md`'s GraphRAG row overstates what is known.** Not because the code
+is wrong — #103 and #112 fixed what was found — but because nothing has ever run it end to end,
+and today is the second time this repository has learned that "it is implemented" and "it works"
+are different claims.
+
 Every dataset lands under the Milestone 3 checklist the DoD names — descriptor, budget timing,
 published reference where one exists, licence from upstream, reproduction pin.
+
+**Licence and shape determinations, from primary sources, 2026-08-09.** The licence was the
+gating item; the *shape* finding turned out to matter more.
+
+| Dataset | Licence (upstream) | Retrieval corpus | Verdict |
+|---|---|---|---|
+| HotpotQA | **CC BY-SA 4.0**, verified | **A real shared corpus — 5.23M docs.** Already a BEIR dataset | **clear to land**, at a cost |
+| MultiHop-RAG | **ODC-BY**, verified | **A real shared corpus — 609 news articles**, 2,556 queries | **clear to land** |
+| MuSiQue | **CC BY 4.0**, verified from the LICENSE file | **None.** 20 candidate paragraphs per question | **needs new infrastructure** |
+| 2WikiMultiHopQA | **Unclear** — Apache-2.0 covers the *repo*; the data sits on unlicensed Dropbox zips | **None.** 10 paragraphs per question | **blocked + needs infrastructure** |
+
+**The shape finding reshapes this phase.** Two of the four do not ship a retrieval corpus at all —
+they ship per-question candidate paragraphs. Running them corpus-style means *constructing* a
+corpus by pooling and deduplicating those paragraphs and assigning stable document ids, which is
+new infrastructure and, more importantly, **a decision that determines whose published numbers you
+can compare against**: every retrieval-stage figure for MuSiQue and 2Wiki (HippoRAG, IRCoT) is on
+the authors' own 1,000-question pooled corpus, so the figures are comparable only if that exact
+construction is reproduced. Corpus construction is not a preliminary here; it is the experiment.
+
+Two corrections to this entry's own framing:
+
+- **MuSiQue is described above as the one to trust when the numbers disagree. That still holds on
+  quality grounds — but it is the least reproducible of the four.** No tags, no releases, no DOI;
+  distribution is a bare Google Drive file id. The best pin available is the repo commit plus a
+  recorded SHA256 of the downloaded zip.
+- **HotpotQA is the easiest to land and the most expensive to run.** It is already in BEIR format
+  with binary qrels and a published BM25 nDCG@10 of 0.603, so no adapter is needed — but its
+  corpus is 5.23M documents, orders of magnitude beyond anything the harness has run. Subsetting
+  would make it affordable and would simultaneously break comparability with the published figure,
+  which is the whole reason to run it.
+
+**All four use binary judgements** — supporting-paragraph flags, supporting-fact sentence ids,
+evidence triples, evidence sets. The form of each was checked rather than inferred from how the
+dataset is usually described, on the FiQA precedent. So none of them exercises the graded path;
+TREC-COVID in 5.3 remains the only real candidate for that.
+
+On the evidence, **MultiHop-RAG is the one to land first**: a genuine shared corpus small enough to
+run, a verified licence, a clean HuggingFace revision pin, and retrieval-stage reference figures
+(Hits@10, MRR@10, MAP@10) rather than answer-level ones. Its only work is deriving document-level
+qrels from per-query evidence lists, plus a policy for the **301 null queries** that have no answer
+and no evidence — which is a real decision, not a detail, since they are 12% of the query set.
 
 ### Phase 5.3: Deferred Datasets — NFCorpus, TREC-COVID, EnronQA [status: pending]
 **Goal:** Land the three datasets the evaluation programme still lacks, together: the small hard
@@ -2303,12 +3188,54 @@ exists rather than a debts list.)
   test**, which no BEIR dataset offers. Its anti-contamination argument is also worth keeping: a
   model cannot have memorised someone's inbox, unlike NaturalQuestions or TriviaQA.
 
+  **Correction, 2026-08-09: "CC BY 4.0" is wrong, and it is wrong in an instructive way.** That
+  badge is the **arXiv submission licence for the paper**, not a licence for the dataset. The
+  dataset has **no declared licence anywhere**: the HuggingFace repo `MichaelR207/enron_qa_0922`
+  has no licence tag and no LICENSE file, and the paper's full text states none. (An MIT tag that
+  turns up in searches belongs to a *derivative*, `weaviate/hard-questions-enronqa`.) The other
+  four claims — 103,638 emails, 528,304 QA pairs, 150 inboxes, the arXiv id — all **verified**
+  against the paper. So the handover was right about everything checkable from the paper and wrong
+  about the one thing that required looking somewhere else, which is the same shape as the
+  FiQA-qrels error: a plausible claim, repeated, never traced to its source.
+
 Each arrives under the full Milestone 3 per-dataset checklist — descriptor, `BeirRunBudget`
 timing, revision-pinned published reference where one exists, licence determination from
 upstream, `BeirReproduction` pin — which is precisely the list Milestone 3's close said none of
 them had, and declined them over.
 
-### Phase 5.4: Precision@k and MAP [status: pending]
+**Licence determinations, from primary sources, 2026-08-09.** This was the checklist item gating
+the whole phase, so it was done first and separately from any implementation.
+
+| Dataset | Licence (upstream) | Pin | BM25 reference | Verdict |
+|---|---|---|---|---|
+| NFCorpus | **Academic use only** ([Heidelberg](https://www.cl.uni-heidelberg.de/statnlpgroup/nfcorpus/)); underlying NutritionFacts.org content is **CC BY-NC 4.0** | HF `b5026a0e…`; BEIR zip MD5 `a89dba18…` | nDCG@10 **0.325** | **needs a decision** |
+| TREC-COVID | Corpus: **CORD-19 agreement — "text and data mining only"** ([LICENSE](https://github.com/allenai/cord19/blob/master/LICENSE)); qrels: NIST, unstated | HF `7e16fde3…`; BEIR zip MD5 `ce62140c…` | nDCG@10 **0.656** | **clear to land** |
+| EnronQA | **None declared** — see the correction above | HF `c0b3a919…` | Recall@5 87.5 (BM25) / 59.3 (ColBERTv2) | **blocked** |
+
+Three things worth carrying forward:
+
+- **TREC-COVID's graded-relevance claim survives scrutiny, unlike FiQA's.** NIST states it
+  verbatim — *"judgment is 0 for not relevant, 1 for partially relevant, and 2 for fully
+  relevant"* — and the BEIR qrels preview shows 0, 1 **and 2**. So it genuinely would be the
+  first dataset to exercise `IrMetrics`' `2^rel − 1` path, and the Milestone 5 DoD criterion that
+  depends on a graded dataset has a real candidate rather than a mistaken one. Its TDM-only
+  corpus licence permits exactly what this repo does — cache locally, benchmark, publish figures —
+  and forbids redistribution, which this repo does not do.
+- **Do not cite the BEIR HuggingFace cards as licences.** Both `BeIR/nfcorpus` and
+  `BeIR/trec-covid` are tagged `cc-by-sa-4.0`, and both tags are contradicted by upstream —
+  BEIR's own paper admits *"the authors of 4 out of the 19 datasets (NFCorpus, FiQA-2018, Quora,
+  Climate-Fever) do not report the dataset license."* The tag is a blanket repo tag, not a
+  determination. This is the third time in two days that a convenient secondary source has been
+  wrong where the primary one was clear.
+- **Nothing upstream offers a semantic version for any of the three.** HF revision hashes plus
+  BEIR zip MD5s are the only pins that exist, so that is what `BeirReproduction` must pin.
+
+NFCorpus is the one needing a call: "academic use only" plus CC BY-NC underlying content is
+almost certainly satisfied by benchmarking and publishing figures, but this is an open-source
+library that commercial users consume, and the restriction should be documented rather than
+waved through.
+
+### Phase 5.4: Precision@k and MAP [status: implemented 2026-08-09, #75]
 **Goal:** Add `Precision@k` and `MAP` to `IrMetrics`. (Not a features.md row — two missing IR
 metrics.)
 
@@ -2321,6 +3248,19 @@ against a published figure stated in either metric — 5.3's EnronQA baselines o
 suites are the plausible triggers — but it is recorded as a phase anyway so the work has an
 owner, rather than becoming a slot nobody owns: this list's own history says an unowned small
 task is how a debt turns into an open note.
+
+**Closed 2026-08-09 (#75).** `Precision` and `AveragePrecision` landed with hand-computed pinned
+values, and `IrEvaluation` gained `Precision` and `MeanAveragePrecision` **appended**, so the
+positional reads of every existing caller still mean what they meant. The predicted subtlety was
+the real one: MAP's denominator is `min(k, relevantCount)`, matching `Evaluate`'s judged-query
+rule rather than dividing by `k`.
+
+A contradiction found while pinning the values, and settled separately in **#77**: this file and
+`IrMetrics`' doc comment disagreed about whether FiQA is graded. It is **binary** — verified by
+reading every qrels row rather than by sampling: train 14,166, test 1,706 and dev 1,238 rows all
+score 1. The doc comment was wrong; `2^rel − 1` still has no graded dataset to exercise it, so
+the Milestone 5 DoD criterion that depends on one remains open and is now recorded honestly
+instead of resting on a dataset that would never have exercised it.
 
 ### Phase 5.5: Tier 3 Suites [status: recorded — deliberately not scheduled]
 **Candidates, with the handover's reasoning kept:** CRAG (Meta, KDD Cup 2024 — the handover's

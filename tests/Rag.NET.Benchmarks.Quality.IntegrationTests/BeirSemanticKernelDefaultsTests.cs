@@ -133,18 +133,32 @@ public sealed class BeirSemanticKernelDefaultsTests
         using var recorder = new RecordingEmbeddingGenerator(
             (texts, token) => BeirHarness.EmbedAsync(generator, embeddings, texts, token));
 
-        var startedAt = Stopwatch.GetTimestamp();
+        // The same spans the Python harness brackets (run_entrant.py): index construction only,
+        // then each retrieval call only. Every vector the run will need is prefetched into
+        // memory before either span starts, so the indexing figure is SK building its store
+        // from vectors it already has — not "the cost of indexing"; embedding and its disk I/O
+        // are excluded by construction, and the sidecar's hit/miss counts describe the untimed
+        // prefetch, i.e. what the disk really held. A cold cache fails loudly there.
+        var hitsBefore = embeddings.Hits;
+        var missesBefore = embeddings.Misses;
+        var judged = BeirHarness.JudgedQueries(dataset);
+        PrefetchEveryVectorTheRunWillNeed(embeddings, dataset.Documents, judged);
+        var indexingStartedAt = Stopwatch.GetTimestamp();
         using var collection = SemanticKernelEntrant.CreateCollection(recorder);
         await SemanticKernelEntrant.IndexAsync(collection, dataset.Documents, ct);
-        var judged = BeirHarness.JudgedQueries(dataset);
-        var runs = await SemanticKernelEntrant.RetrieveAsync(
+        var indexingSeconds = Stopwatch.GetElapsedTime(indexingStartedAt).TotalSeconds;
+        var (runs, queryLatencies) = await SemanticKernelEntrant.RetrieveAsync(
             collection, judged, descriptor.ExcludesSelfRetrievedDocument, ct);
-        var elapsed = Stopwatch.GetElapsedTime(startedAt);
 
         AssertSemanticKernelEmbeddedExactlyTheSuppliedTexts(dataset, judged, recorder);
 
         var runFilePath = RunFilePath(cacheDirectory, datasetName);
         TrecRunFile.Write(runFilePath, runs, RunTag);
+        WriteTimingsSidecar(
+            runFilePath, indexingSeconds, queryLatencies,
+            checked((int)(embeddings.Hits - hitsBefore)),
+            checked((int)(embeddings.Misses - missesBefore)),
+            dataset.Documents.Count);
         if (descriptor.ExcludesSelfRetrievedDocument)
         {
             AssertTheWrittenFileHoldsThePostExclusionRanking(runFilePath);
@@ -152,11 +166,37 @@ public sealed class BeirSemanticKernelDefaultsTests
 
         var readBack = TrecRunFile.Read(runFilePath);
         var evaluation = IrMetrics.Evaluate(readBack, dataset.Qrels, BeirHarness.Cutoff);
-        _output.WriteLine(Describe(descriptor, runFilePath, evaluation, elapsed));
+        _output.WriteLine(Describe(
+            descriptor, runFilePath, evaluation, indexingSeconds, TotalSeconds(queryLatencies)));
 
         BeirReproduction.AssertReproduces(
             datasetName, BeirProtocol.SemanticKernel,
             evaluation.NormalizedDiscountedCumulativeGain, _output);
+    }
+
+    /// <summary>
+    /// Reads every vector the run will need — one per corpus document and one per judged query,
+    /// the exact texts Semantic Kernel embeds through the recorder — from disk into the cache's
+    /// memory, before any timed span starts. All the run's cache I/O happens here; a cold cache
+    /// fails loudly in <see cref="EmbeddingCache.Prefetch"/> rather than being timed.
+    /// </summary>
+    private static void PrefetchEveryVectorTheRunWillNeed(
+        EmbeddingCache embeddings,
+        IReadOnlyList<BeirDocument> documents,
+        IReadOnlyList<BeirQuery> judged)
+    {
+        var texts = new string[documents.Count + judged.Count];
+        for (var i = 0; i < documents.Count; i++)
+        {
+            texts[i] = documents[i].RetrievalText;
+        }
+
+        for (var i = 0; i < judged.Count; i++)
+        {
+            texts[documents.Count + i] = judged[i].Text;
+        }
+
+        embeddings.Prefetch(texts);
     }
 
     /// <summary>The pinned generator called directly, in the shape the recorder's source takes.</summary>
@@ -289,17 +329,52 @@ public sealed class BeirSemanticKernelDefaultsTests
         return sum;
     }
 
+    /// <summary>
+    /// Writes the entrant's self-measured timings beside its run file. One record per document is
+    /// Semantic Kernel's own default — no chunker — so the unit count is the corpus size and no
+    /// document contributes more than one unit.
+    /// </summary>
+    private static void WriteTimingsSidecar(
+        string runFilePath,
+        double indexingSeconds,
+        IReadOnlyDictionary<string, double> queryLatenciesMilliseconds,
+        int embeddingCacheHits,
+        int embeddingCacheMisses,
+        int unitCount) =>
+        TimingsSidecar.Write(
+            runFilePath,
+            new EntrantTimings(
+                RunTag, indexingSeconds, queryLatenciesMilliseconds,
+                embeddingCacheHits, embeddingCacheMisses, unitCount, MaxUnitsPerDocument: 1),
+            BeirHarness.RunIndex);
+
+    /// <summary>
+    /// The raw per-query spans summed, for the human-readable line only — derived from the
+    /// sidecar's samples rather than timed separately, so the print and the data cannot drift.
+    /// </summary>
+    private static double TotalSeconds(IReadOnlyDictionary<string, double> latenciesMilliseconds)
+    {
+        var totalMilliseconds = 0.0;
+        foreach (var latency in latenciesMilliseconds.Values)
+        {
+            totalMilliseconds += latency;
+        }
+
+        return totalMilliseconds / 1000;
+    }
+
     /// <summary>The line the run prints, leading with the dataset like every other measurement.</summary>
     private static string Describe(
         BeirDatasetDescriptor descriptor,
         string runFilePath,
         IrEvaluation evaluation,
-        TimeSpan elapsed) =>
+        double indexingSeconds,
+        double retrievalSeconds) =>
         FormattableString.Invariant($"""
             {descriptor.Name} SEMANTIC KERNEL AT ITS DEFAULTS (SK 1.78.0, InMemory connector 1.74.0-preview, MEVD 10.1.0)
             unchunked documents (SK ships no chunker), cosine (connector default), top {SemanticKernelEntrant.RetrievalDepth(descriptor.ExcludesSelfRetrievedDocument)} (protocol: metric cutoff{(descriptor.ExcludesSelfRetrievedDocument ? " + 1 for the self-exclusion" : string.Empty)}), pinned all-MiniLM-L6-v2
             nDCG@{evaluation.Cutoff} = {evaluation.NormalizedDiscountedCumulativeGain:F5}, Recall@{evaluation.Cutoff} = {evaluation.Recall:F5}, MRR@{evaluation.Cutoff} = {evaluation.MeanReciprocalRank:F5}
             {evaluation.EvaluatedQueryCount} queries evaluated, {evaluation.ExcludedQueryCount} excluded for lacking a positive judgement
-            elapsed {elapsed.TotalSeconds:F1} s; run file: {runFilePath}
+            indexing {indexingSeconds:F1} s + retrieval {retrievalSeconds:F1} s (self-timed spans; sidecar beside the run file); run file: {runFilePath}
             """);
 }

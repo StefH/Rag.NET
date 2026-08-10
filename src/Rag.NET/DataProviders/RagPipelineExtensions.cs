@@ -287,7 +287,7 @@ public static class RagPipelineExtensions
     private static DocumentMetadata BuildMetadata(
         FileEntry entry, DocumentMetadata? baseMetadata, ProviderId providerId)
     {
-        var tags = new Dictionary<string, string>(StringComparer.Ordinal);
+        var tags = new Dictionary<string, MetadataValue>(StringComparer.Ordinal);
 
         if (baseMetadata?.Tags is not null)
         {
@@ -323,7 +323,9 @@ public static class RagPipelineExtensions
         {
             DocumentId = new DocumentId(entry.Id.Value),
             FileName = entry.FileName,
-            ContentType = baseMetadata?.ContentType,
+            // Entry wins, like Tags and the timestamps: a provider yielding both a PDF and a
+            // Markdown file needs to say so per entry, and a batch-level default cannot.
+            ContentType = entry.ContentType ?? baseMetadata?.ContentType,
             // Entry-level timestamps are per-document and connector-set; baseMetadata's are a
             // batch-level default supplied once per IngestFromProviderAsync call — same
             // precedence as Tags just above, where the entry also wins on collision.
