@@ -153,10 +153,10 @@ int idx = 1;
 foreach (var source in azureResponse0.Sources)
 {
     //Console.WriteLine(source.Chunk.Metadata["url"].StringValue);
-    replaced = replaced.Replace($"[Bron {idx++}]", source.Chunk.Metadata["url"].StringValue);
+    replaced = replaced.Replace($"[Bron {idx++}]", source.Chunk.Metadata["url"].StringValue, StringComparison.OrdinalIgnoreCase);
 }
 
-Console.WriteLine("\r\n" +replaced);
+Console.WriteLine("\r\n" + replaced);
 
 internal sealed class PromptDump : IPromptObserver
 {
