@@ -37,11 +37,10 @@ anywhere in `ci.yml` — **and, for both tiers, that a merge is mechanically blo
 2026-08-03, correcting this page, which said no branch protection existed): the repository's
 **`Main` ruleset** requires both matrix legs, `build-test (ubuntu-latest)` and
 `build-test (windows-latest)`, as status checks on the default branch, and the Docker tier runs
-inside the Ubuntu leg, so both tiers block. Two honest limits: repository admins can always
-bypass the ruleset, and the other checks in `ci.yml` — `pack-validate` and `commitlint` — run
-and fail loudly but are **not yet in the required set**; they are the ones to add. Adding them
-is scheduled work, on Phase 6.3's checklist in the ROADMAP — before the release dispatches, the
-only guard on the packaging surface must be able to block a merge.
+inside the Ubuntu leg, so both tiers block. Since 2026-08-11 it also requires **`pack-validate`**
+and **`commitlint`** — Phase 6.3's first checklist item, done before either release dispatch,
+because until then the only guard on the whole packaging surface could go red without blocking
+anything. One honest limit remains: repository admins can always bypass the ruleset.
 
 The LLM tier is one project, `Rag.NET.E2ETests`. It pulls `nomic-embed-text` and `llama3.2:1b`, and
 its assertions are text a model wrote — Phase 2.1 measured one such assertion failing roughly **1 run
@@ -61,8 +60,8 @@ reasons:
 
 On `run-secrets`: the job *gates* in the sense that a failure is a real failure and is reported as
 one — no `continue-on-error` anywhere in it. It does not *block* anything today: the `Main`
-ruleset requires only the two `build-test` legs, and this job is not among them. If it is ever
-added, this is the nightly job to require; the `llm` one never is.
+ruleset requires the two `build-test` legs, `pack-validate` and `commitlint`, and this job is not
+among them. If a fifth is ever added, this is the nightly job to require; the `llm` one never is.
 
 Use `run-llm` when you have changed the answer engine or a retrieval path and want to see the
 end-to-end result before merging. Use `run-secrets` when you have touched PDF OCR, Document
@@ -244,6 +243,22 @@ for i in 1 2; do
 done
 ```
 
+**`RAGNET_COST_MATRIX_RUNS` — gating a finished sweep and dumping the publishable tables.** Once
+every cell has been measured `N` times, `CostMatrixDumpTests` runs `CostReproducibility` over all
+of them and prints the two tables the roadmap's §6 authorised: latency cross-ecosystem, index
+construction per ecosystem. The variable says how many repeats to read, so it is also what refuses
+a dump the data cannot support — below `2` it **throws** rather than skipping, because there is no
+one-run table to fall back to:
+
+```bash
+RAGNET_COST_MATRIX_RUNS=3 dotnet test tests/Rag.NET.Benchmarks.Quality.IntegrationTests \
+  --no-build --filter "DisplayName~DumpsTheGatedCostMatrix"
+```
+
+A cell whose sidecars are missing or whose spread is past the bar **fails** and is named, along
+with every other failing cell, instead of dropping out of the table — a matrix that quietly prints
+eleven rows where twelve were measured reads exactly like a complete one.
+
 **The reranked ablation cells additionally need the cross-encoder, which the nightly deliberately
 does not provision.** It used to: the job fetched, SHA-256-checked and cached the ~87 MB
 `cross-encoder/ms-marco-MiniLM-L6-v2` export on every cold run — and both genuine runs on the
@@ -373,8 +388,8 @@ selection with a hardcoded list passed it. A guard that a comment can satisfy is
 
 `ci.yml` has a second gating job besides the test matrix: `pack-validate`, on `ubuntu-latest`.
 Every run it derives the version from git history (see [Versioning](#versioning-gitversion-and-the-release-tooling)
-below), packs the 69 shippable packages with it (`dotnet pack Rag.NET.slnx -c Release -o
-artifacts/packages -p:Version="$PACKAGE_VERSION"` — 69 `.nupkg` plus 69 `.snupkg`), validates
+below), packs the 70 shippable packages with it (`dotnet pack Rag.NET.slnx -c Release -o
+artifacts/packages -p:Version="$PACKAGE_VERSION"` — 70 `.nupkg` plus 70 `.snupkg`), validates
 them with `tests/Rag.NET.PackageValidation.Tests` — the only guard there is, because `dotnet
 pack` enforces almost none of its own metadata — and then **pushes every package to a local
 directory feed, twice, asserting per file that each one arrived**.
@@ -397,7 +412,7 @@ Three things the rehearsal measured (2026-08-03), each pinned by a workflow asse
   changes that behaviour the run fails and the rehearsal widens to cover symbol packages.
 
 `--skip-duplicate` is the deliberate duplicate policy for the real push: nuget.org never forgets
-a published version, so a push that dies partway through 69 packages must be re-runnable, and
+a published version, so a push that dies partway through 70 packages must be re-runnable, and
 without the flag the retry fails on the first package that already arrived. Idempotent is the
 only retry-safe shape against an append-only feed.
 
@@ -409,17 +424,41 @@ recorded to the standard `TestGateTests` holds every other gate in this reposito
 | | |
 |---|---|
 | **Name** | `publish-nuget`, a job in `ci.yml` |
-| **Condition** | a manual `workflow_dispatch` on `main` with `publish_to_nuget=true`, plus the `NUGET_API_KEY` repository secret — the job fails loudly on a missing key rather than 401ing |
+| **Condition** | a manual `workflow_dispatch` on `main` with `publish_to_nuget=true`, plus a Trusted Publishing policy on nuget.org and the `NUGET_USER` repository variable — the job fails loudly when no key is minted rather than 401ing |
 | **Satisfied by** | the procedure below, runnable by any maintainer with admin on the repository; Phase 6.3 executes it |
 
 ```bash
-# Once: an API key minted on nuget.org, scoped to pushing new packages and package versions.
-gh secret set NUGET_API_KEY
+# Once: the nuget.org account name the Trusted Publishing policy belongs to. Not a secret —
+# it is a username, and holding it as a variable keeps it visible and editable.
+gh variable set NUGET_USER
 # The release: dispatch CI on main with the publish input. The full test matrix and
 # pack-validate run first on that same commit, and publish-nuget refuses to start until
 # both are green.
 gh workflow run ci.yml --ref main -f publish_to_nuget=true
 ```
+
+**One step in this procedure is not a command, and it is the one that fails last.** Trusted
+Publishing needs a policy created on nuget.org itself — under *Account → Trusted Publishing* —
+naming this repository, the `ci.yml` workflow and the owner. Nothing in the repository can
+create it, assert it or detect its absence: the workflow runs, `NuGet/login` requests a token,
+and nuget.org declines. Create it before the first dispatch.
+
+**Why Trusted Publishing rather than a stored key.** NuGet deprecated long-lived API keys in
+favour of short-lived tokens minted per run from the workflow's OIDC identity. The practical
+difference is that there is no credential in the repository to leak, rotate or forget: the token
+this job receives lasts minutes and is bound to this repository and workflow. Raised by StefH on
+issue #87, tracked as #89.
+
+**The push command did not change**, deliberately. Only the origin of `$NUGET_API_KEY` did — a
+secret before, a step output now — so the command Phase 4.1 rehearsed against a local feed on
+every push is still the command that runs on release day. `WorkflowWiringTests` pins the command,
+the login action, the step output it reads and the `id-token: write` permission together, because
+a push command that stays stable while its credential changes underneath is exactly the drift
+nothing else would notice.
+
+> **Delete the `NUGET_API_KEY` secret once a Trusted Publishing push has succeeded.** It is no
+> longer read by anything, and a retired credential that still works is how these migrations
+> stall — the old mechanism stays usable, so nothing forces the new one to be correct.
 
 **`TestGateTests` does not cover this gate, and that is stated rather than assumed away.** That
 guard scans *test* gates — `RAGNET_*` environment variables, `#if` symbols, skip attributes —
@@ -434,7 +473,7 @@ a documented procedure, and guarded so it cannot be deleted or drift silently.
 ### What the rehearsal cannot prove — the 6.3 residual
 
 Pushing to a local feed is not pushing to nuget.org. **Exercised for real exactly once, on
-release day:** authentication, API-key scoping, package-ID availability (none of the 69 IDs is
+release day:** authentication, API-key scoping, package-ID availability (none of the 70 IDs is
 reserved until then — an exposure the design accepts and records), the service's own validation,
 the real 409-and-skip behaviour of `--skip-duplicate`, and `.snupkg` symbol delivery — which at
 nuget.org rides automatically on each `.nupkg` push and cannot be rehearsed against a directory
@@ -508,6 +547,37 @@ git commit --allow-empty -m "chore: set the release version" -m "Release-As: 0.9
 
 Then the release itself is the publish procedure above, dispatched on the tagged commit — where
 GitVersion returns the tag's stable version and `publish-nuget` packs and pushes exactly that.
+
+**The release pull request arrives with no checks on it, and that is a property of GitHub rather
+than a misconfiguration.** Events triggered by the built-in `GITHUB_TOKEN` do not start workflow
+runs — the rule that stops workflows triggering themselves forever. release-please opens its PR
+with that token, so `ci.yml`'s `pull_request` trigger never fires and **none of the four required
+checks reports**. Verified rather than inferred: release PR
+[AdoNet.Async#140](https://github.com/MarcelRoozekrans/AdoNet.Async/pull/140) has `total_count: 0`
+check runs and was merged anyway, through the same admin bypass this repository has.
+
+That matters here more than it does there. The `Main` ruleset requires four checks precisely so
+that nothing reaches `main` unvalidated — and the release commit, the one commit that becomes a
+tag and 70 published packages, would be the single commit merged with **no CI at all**, by
+bypassing the rule that exists to prevent it. Pick one before the first release:
+
+- **Run the checks by hand on the release branch.** `ci.yml` has a `workflow_dispatch` trigger,
+  and a dispatched run reports against the branch's head commit, so the required checks can be
+  satisfied without a bypass:
+
+  ```bash
+  gh workflow run ci.yml --ref release-please--branches--main
+  ```
+
+- **Give release-please a token that is not `GITHUB_TOKEN`** — a fine-grained PAT or a GitHub App
+  installation token, passed as the action's `token:` input. Its PR triggers `ci.yml` normally and
+  the checks run unprompted. This is the option that needs no discipline on the day, at the cost
+  of a credential to hold — which is the trade Trusted Publishing was just adopted to avoid
+  elsewhere, so it is a real choice rather than an obvious one.
+
+Merging the release PR with the admin bypass is the third option and is the one to take
+deliberately or not at all, because it is indistinguishable afterwards from the bypass being
+routine.
 
 **The residual, stated:** the action's first real execution is release day. What holds it until
 then is `WorkflowWiringTests`, which pins the dispatch-only trigger, the `main`-ref condition,

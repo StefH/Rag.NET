@@ -2846,11 +2846,15 @@ every criterion below can be false, and something checks it — not the older "a
 shape, though that box is still here doing its share):
 - [ ] Phases 5.1–5.4 complete (5.5 deliberately schedules nothing and is outside this box by
       design — see its entry)
-- [ ] **No cross-ecosystem latency figure is published without the confound statement beside
+- [x] **No cross-ecosystem latency figure is published without the confound statement beside
       it**: the results page states the mechanism that made in-process .NET and subprocess Python
       rows comparable, or publishes them per-ecosystem labelled non-comparable. A latency number
       on a page without that statement fails this criterion; the check is reading the page — the
       same check that held the `+BM25 hybrid` row to its label.
+      *(Met 2026-08-10. The published latency table is cross-ecosystem and carries the
+      default-in-memory-store caveat inline plus the startup exclusion; indexing publishes as two
+      per-ecosystem tables labelled non-comparable, with the reason — the Python spans include each
+      library's chunker and are warmed by an untimed rehearsal — stated between them.)*
 - [ ] **`IrMetrics`' graded gain has scored a real dataset**: at least one dataset whose qrels
       carry a grade above 1 has been through `Evaluate`, and the FiQA-qrels contradiction
       (`IrMetrics.cs:31-32` against the TREC-COVID debt entry) is settled by reading the cached
@@ -2917,7 +2921,7 @@ shape, though that box is still here doing its share):
 > everything a user installs; the harness half does not, and repeating the constraint
 > unqualified would be false.
 
-### Phase 5.1: Library Performance Comparison [status: measurement landed 2026-08-09; §6 decided — publication is the remaining work]
+### Phase 5.1: Library Performance Comparison [status: complete 2026-08-10 — full matrix gated and published]
 **Goal:** Compare **cost** across the Phase 3.14 comparators — indexing throughput (docs/sec),
 query latency p50/p99, allocations per query, Native AOT startup time, RSS. (Not a features.md
 row — the only item the handover proposes that Phase 3.14 did not touch; it calls this table
@@ -3064,6 +3068,114 @@ that interpreter and runtime startup are excluded by construction, that allocati
 AOT startup are .NET-only and publish as an internal table, and that every row comes from one
 machine in one session with the caches warm. **Remaining work is publication only**; the
 measurement, the percentile definition and the boundary guard all landed.
+
+**2026-08-10 — the full matrix ran on an idle machine, and both blockers above are cleared.**
+Twelve cells (SciFact and ArguAna × five entrants, FiQA × the two .NET entrants), three repeat runs
+each, round-major with the entrant order rotating so no entrant is always the coldest or the
+warmest. All 36 sidecars came through `CostReproducibility`; spreads were ×1.02–×1.17 on all but
+two, against a ×3 bar. **Published** to
+[the comparison page](../reference/library-comparison.md#cost-retrieval-latency-and-index-construction):
+latency cross-ecosystem, indexing per ecosystem, every figure a range.
+
+The idle machine visibly mattered — the SciFact figures above, taken while the machine was in use,
+were **3–5× slower and far less stable** than the same cells measured idle (control p50
+5.6–9.5 ms → 1.5–1.7 ms; LangChain 96.3–109.2 ms → 54.0–56.1 ms; control indexing ×1.71 → ×1.34).
+The table above is therefore superseded, not merely extended, and §2.2's "one machine, one session"
+rule is doing real work rather than ceremony.
+
+**The run was blocked by a defect the benchmark was the only thing that could find.** The Semantic
+Kernel entrant failed all three rounds with `TypeLoadException` on
+`Microsoft.Extensions.VectorData.VectorSearchFilter` while every other entrant ran. Renovate's #119
+had moved `Microsoft.SemanticKernel` 1.78.0 → 1.79.0, which requires VectorData ≥ 10.5.2 — and
+10.5.0 removed the type its own `Connectors.InMemory` still binds to. That connector cannot move:
+1.74.0-preview is the newest ever published. Restore succeeded and the build was clean, so the
+entrant sat broken on `main` through a full release cycle. Pinning VectorData was the wrong fix
+(NU1605 — 1.79.0 states the ≥ 10.5.2 floor); the pin belongs on the package that moved.
+
+Two guards followed, both for the same reason the defect survived:
+
+- **`SemanticKernelEntrantTests` ran on every push, passed throughout, and could never have caught
+  it.** All six cases exercise `RetrievalDepth` and `TopDocuments` — pure functions over
+  `ScoredDocument` that load no Semantic Kernel type. The only code touching the connector sat
+  behind `RAGNET_BEIR_LONG_RUNS` and an hour of corpus. `SemanticKernelConnectorLoadsTests` drives
+  create/upsert/search against a stub embedder in **169 ms, ungated**; verified by restoring 1.79.0
+  and watching it fail with the exact `TypeLoadException`.
+- **The run tag was a literal that had already gone stale.** `"semantic-kernel-1.78.0"` was
+  documented as naming "the exact version measured" with nothing enforcing it, so from #119 onwards
+  every run file it wrote would have named a version it had not run. It is now derived from the
+  loaded assembly — and cross-checked against the `Directory.Packages.props` pin, because this same
+  dependency graph proves an assembly can misname its package: **VectorData.Abstractions 10.1.0
+  ships an assembly whose informational version reads 1.74.0.**
+
+`CostMatrixDumpTests` gates every cell and emits the published tables, so the page cannot be
+rebuilt by hand from numbers nothing checked. **Phase 5.1 is complete.**
+
+### Phase 5.1.1: The Cost Figure Read Back [status: complete 2026-08-11 — optimised, verified and republished; a single-session five-entrant sweep still owed]
+
+**Goal:** act on what 5.1 measured, instead of filing it. Publishing a latency number we lost on
+was the point of publishing it.
+
+**The measurement pointed at two defects, and the benchmark suite could not see either.** Ten
+benchmarks in `Rag.NET.Benchmarks` call a `SearchAsync` and **every one is a stub** holding the
+store still while some other component is measured — correct for those benchmarks, and it left the
+real `InMemoryVectorStore.SearchAsync` with no coverage at all. The one retrieval path carrying a
+published latency figure was the one path with no allocation profile. `VectorSearchBenchmarks`
+fills it at the corpus sizes the comparison used, and reproduced the published control p50 on its
+first run — which is what established that the scan, not the surrounding span, was the cost.
+
+- **The dense scan allocated the whole corpus per query.** `SearchAsync` built a `List` pre-sized
+  to `_dense.Count` and sorted it to take ten: **901 KB per query** over FiQA's 57,638 documents,
+  past the Large Object Heap threshold, with Gen2 collections visible from 8,674 documents up — and
+  O(n log n) work for an O(n log k) question. A bounded top-k selector makes allocation **constant
+  at 952 B** across every corpus size measured.
+- **Scoring recomputed two constants per candidate.** Cosine ran three multiply-accumulate chains
+  over 384 floats — the dot product and *both* norms — although the query's norm is fixed for the
+  whole scan and a stored vector's cannot change while stored. Hoisting both and vectorising the
+  remaining chain with the in-box `Vector<T>` (not TensorPrimitives, which would add a dependency
+  to `Rag.NET` itself) leaves one chain per candidate.
+
+Measured on one idle machine in one session: **4.3× / 4.0× / 2.5×** at 5,183 / 8,674 / 57,638
+documents, allocation **81.75 KB → 952 B**, **136.3 KB → 952 B**, **901.36 KB → 952 B**.
+
+**Verified against retrieval quality, because vectorising changes summation order.** A vectorised
+reduction folds several partial sums instead of accumulating left to right, so scores move in the
+last bits — usually *more* accurately — and retrieval turns scores into an ordering, so two chunks
+differing in the seventh decimal can swap rank. The full gated BEIR suite passes **89 cases with
+every pinned nDCG unmoved**, across control, parity, reproduction, ablation, real-chunking and
+Semantic Kernel rows on all three corpora. The three failures are
+`fiqa-{langchain,haystack,llamaindex}.trec` not existing — the refuse-on-miss rule for a corpus no
+Python entrant has ever run, which scores pre-existing run files and never touches this store.
+
+**A stacked pull request reported itself merged and was not.** #138 was based on #137's branch;
+when #137 squash-merged and its branch was deleted, GitHub closed #138 as merged while none of its
+commits reached `main`. Caught by checking the file rather than the label — `main` still carried
+the scalar loop and no `DenseEntry`. This is the second time a merge state has had to be verified
+by content in this repository, and it will not be the last.
+
+**Published.** Post-optimisation the control measures 0.3–0.4 ms (SciFact), 0.9–1.1 ms (ArguAna)
+and 7.9–10.0 ms (FiQA) — **fastest of the five entrants on all three corpora**, reversing the
+published ordering against Semantic Kernel. Those figures are in the comparison page's tables, not
+in a footnote: a result nobody reads is not published, and the earlier "superseded" note left the
+old numbers in the table where a skimming reader would take them as current.
+
+**The session split is labelled rather than hidden, and Semantic Kernel is what makes that
+honest.** The Python rows are from 2026-08-10; the two .NET rows were re-measured 2026-08-11 in two
+separate idle sessions of three gated rounds each, and their columns publish the union across both
+— six runs, which is why those ranges are wider than the Python ones rather than tighter. §2.2
+still wants a single sweep of all five and that is still owed. What makes publishing before it
+defensible is that **SK is the control for the control**: its code did not change between the two
+sessions, so its movement is pure session variance — roughly ±20% — against a control that moved
+4–5×. Cross-session noise cannot manufacture a change that size, and the Python gap is two orders
+of magnitude.
+
+**Index construction moved the other way, and the page says so.** FiQA's control indexing went
+0.09 s → 0.11–0.19 s, because each vector's norm is now computed once on write rather than once per
+candidate per query. That is the trade working as intended — roughly 0.05 s at index time for
+~10 ms off every query over 57,638 documents — and part of even that increase is session variance,
+since SK's indexing moved similarly without any code change.
+
+**Still owed:** one sweep of all five entrants in a single session, which collapses the union
+ranges back to three-run spreads and removes the caveat entirely.
 
 ### Phase 5.2: Multi-Hop Retrieval [status: pending]
 **Goal:** Measure multi-hop retrieval — HotpotQA, MuSiQue, 2WikiMultiHopQA, MultiHop-RAG. (Not a
@@ -3409,7 +3521,7 @@ by something.
 > 4.1 could not rehearse because their only observable effects *are* the release.
 
 **Checklist** (the phase's work beyond the tag itself):
-- [ ] **Add `pack-validate` and `commitlint` to the `Main` ruleset's required checks** (routed
+- [x] **Add `pack-validate` and `commitlint` to the `Main` ruleset's required checks** (routed
       here 2026-08-03 at Phase 4.1's close — until now recorded in that phase's residual (6),
       in `ci.yml`'s BRANCH PROTECTION comments and in `docs/reference/ci.md`, but owned by no
       phase, which violates this repository's record-then-schedule rule). Both checks run on
@@ -3419,3 +3531,45 @@ by something.
       documented. Do it before either release dispatch, and verify it the way the `build-test`
       checks were verified on 2026-08-03 — by reading the ruleset back through the GitHub API,
       not by trusting the settings page.
+      *(Done 2026-08-11. The `Main` ruleset now requires `build-test (ubuntu-latest)`,
+      `build-test (windows-latest)`, `pack-validate` and `commitlint`, read back through
+      `GET /repos/{owner}/{repo}/rulesets/{id}` rather than off the settings page. Everything
+      else is unchanged and was re-read in the same response: enforcement `active`, one
+      approving review, strict up-to-date policy on, and the admin bypass at `always`.)*
+
+## Beyond v1.0: Recorded, Not Scheduled [status: a list, not a plan]
+
+**What this section is for.** Ideas that are worth keeping and are not worth doing yet. This
+repository's rule is that deferred work gets recorded with its origin and then placed somewhere,
+because an idea living only in an issue queue is indistinguishable from one nobody weighed. Phase
+5.5 does the same for dataset candidates: **a milestone that lists everything schedules nothing**,
+so nothing here is a commitment, and anything picked up gets a real phase entry with a scope and a
+number first.
+
+Milestone 6 is the terminal milestone. Entries below are explicitly after it.
+
+### TOON instead of JSON in prompts — [#153](https://github.com/MarcelRoozekrans/Rag.NET/issues/153)
+
+[TOON](https://github.com/toon-format/toon) encodes the JSON data model compactly for LLM prompts,
+claiming 42.6% fewer tokens at 72.2% accuracy against JSON's 71.4%.
+
+**One place in this repository fits it.** TOON's strength is uniform arrays of records going *into*
+a prompt, and almost nothing here is that shape: `ChatAnswerEngine` sends `[Source N]` blocks of
+unstructured prose, GraphRAG's global search joins community summaries as text, and GraphRAG's
+extraction asks the model to *return* JSON, which is the opposite direction. The exception is
+`GraphEntityExtractionBehavior.PerformGleaningAsync`, which re-serialises the entities and
+relationships found so far into the prompt on every gleaning pass — a uniform array of flat
+records, sent repeatedly.
+
+**Not scheduled, for reasons worth keeping.** No official .NET implementation surfaced, so this is
+writing and maintaining an encoder rather than adding a package — a poor trade for one call site.
+The accuracy figures are a wash rather than a win, so the whole benefit is token cost. And that
+cost lands on the smallest prompt path this library has: retrieved chunk text dominates prompt size
+by a wide margin, which is why `RetrievalOptions.MaxContextTokens` (Phase 5.1's sibling work,
+issue #85) is the lever that acts on the part that is actually large.
+
+**What would settle it** is a measurement, not a claim: gleaning-prompt tokens per chunk, JSON
+against TOON, counted with the same `cl100k_base` encoding `ContextBudgetBehavior` uses, with
+entity and relationship counts asserted not to move — and compared against the honest baseline of
+simply running fewer gleaning passes, which costs no new format at all. If the saving is a small
+fraction of total prompt tokens, the answer is no and the measurement says so.
