@@ -13,14 +13,13 @@ using Rag.NET.DependencyInjection;
 using Rag.NET.Models;
 using Rag.NET.Models.Options;
 using Rag.NET.Parsers.Html;
-using Rag.NET.Parsers.Pdf;
 using Rag.NET.Sample.Web;
 
 AzureOpenAIClient azureClient = new(
     new Uri(Environment.GetEnvironmentVariable("AZURE_OPENAI_URL2")!),
     new AzureKeyCredential(Environment.GetEnvironmentVariable("AZURE_OPENAI_KEY2")!));
 
-IChatClient chatClient = azureClient.GetChatClient("gpt-5")
+IChatClient chatClient = azureClient.GetChatClient("gpt-4.1")
     .AsIChatClient();
 
 var services = new ServiceCollection();
@@ -131,21 +130,33 @@ var o = new RagOptions
 
     SystemPrompt =
     """
-        Je bent een behulpzame assistent die vragen beantwoordt op basis van de verstrekte context.
+        Je bent een behulpzame assistent die vragen beantwoordt op basis van de verstrekte context in het Nederlands.
+        Vertaal "[Source 1]" naar "[Bron 1]", "[Source 2]" naar "[Bron 2]", enzovoort. En zet de bronnen in een lijst.
         Gebruik Taalniveau CEFR B1/B2. Geef duidelijke en beknopte antwoorden.
         Wanneer je geen goed antwoord kunt geven op basis van de bronnen, geef dan 'Ik kan geen relevante informatie vinden.'
     """,
 
     TopK = 5,
-    MinScore = 0.8,
+    MinScore = 0.7,
     UseHybridSearch = true,
     //Temperature = 0.4f
 };
 
 
 var azureResponse0 = await pipeline.AskAsync("Ik ben 66 en kan volgend jaar met pensioen, maar mijn partner pas over 5 jaar, wat is handig om te doen in mijn situatie?", o);
-Console.WriteLine("\r\n" + azureResponse0.Answer);
 
+Console.WriteLine();
+
+var replaced = azureResponse0.Answer;
+
+int idx = 1;
+foreach (var source in azureResponse0.Sources)
+{
+    //Console.WriteLine(source.Chunk.Metadata["url"].StringValue);
+    replaced = replaced.Replace($"[Bron {idx++}]", source.Chunk.Metadata["url"].StringValue);
+}
+
+Console.WriteLine("\r\n" +replaced);
 
 internal sealed class PromptDump : IPromptObserver
 {
