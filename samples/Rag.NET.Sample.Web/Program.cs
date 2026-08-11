@@ -144,6 +144,19 @@ var o = new RagOptions
 
 
 var azureResponse0 = await pipeline.AskAsync("Ik ben 66 en kan volgend jaar met pensioen, maar mijn partner pas over 5 jaar, wat is handig om te doen in mijn situatie?", o);
+/*
+ * Op basis van de bronnen is het handig om te weten dat je bij pensioenstart keuzes kunt maken:
+
+- Als je geen partner hebt, kun je het partnerpensioen ruilen voor een hoger ouderdomspensioen.
+- Heb je wel een partner, dan kun je mogelijk ouderdomspensioen ruilen voor een hoger partnerpensioen wanneer jouw pensioen ingaat.
+- Het is belangrijk om te kijken naar de datum waarop je pensioen is opgebouwd en wanneer je een partnerrelatie hebt, omdat dit invloed heeft op het recht op partnerpensioen. Bijvoorbeeld: als je pensioenopbouw vóór 1 januari 2015 is gestopt en de partnerrelatie is gestart na je 65e, kan je partner géén recht hebben op partnerpensioen bij jouw overlijden.
+
+Advies: Bekijk goed wanneer je pensioen hebt opgebouwd en wanneer je partnerrelatie is gestart. Je kunt ervoor kiezen het partnerpensioen te verhogen als je wilt dat je partner later meer inkomen krijgt. Neem bij twijfel contact op met ABP en bekijk samen de beste optie voor jullie situatie.
+
+Bronnen:
+https://www.abp.nl/pensioen-bij-abp/pensioenreglement/meer-of-minder-pensioen
+https://www.abp.nl/pensioen-bij-abp/pensioenreglement/overgangsbepalingen/partnerpensioen-over-pensioenopbouw-voor-1-januari-2018-bij-overlijden-op-of-na-65-jaar
+*/
 
 Console.WriteLine();
 
