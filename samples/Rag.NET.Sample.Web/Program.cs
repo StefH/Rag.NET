@@ -17,6 +17,8 @@ using Rag.NET.Models.Options;
 using Rag.NET.Parsers.Html;
 using Rag.NET.Sample.Web;
 
+
+
 AzureOpenAIClient azureClient = new(
     new Uri(Environment.GetEnvironmentVariable("AZURE_OPENAI_URL2")!),
     new AzureKeyCredential(Environment.GetEnvironmentVariable("AZURE_OPENAI_KEY2")!));
@@ -50,7 +52,15 @@ services
         .AddHtmlParser()
     );
 
+services.AddClass1Cache<Class1>();
+
 var provider = services.BuildServiceProvider();
+
+
+var cla = provider.GetRequiredService<IClass1>();
+cla.X();
+cla.X();
+
 var vectorStore = (AzureAISearchVectorStore)provider.GetRequiredService<IVectorStore>();
 await vectorStore.InitializeAsync();
 
