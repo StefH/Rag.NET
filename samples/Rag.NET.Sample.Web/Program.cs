@@ -15,9 +15,8 @@ using Rag.NET.Evaluation.Ragas;
 using Rag.NET.Models;
 using Rag.NET.Models.Options;
 using Rag.NET.Parsers.Html;
+using Rag.NET.Pipeline;
 using Rag.NET.Sample.Web;
-
-
 
 AzureOpenAIClient azureClient = new(
     new Uri(Environment.GetEnvironmentVariable("AZURE_OPENAI_URL2")!),
@@ -36,9 +35,13 @@ services.AddEmbeddingGenerator(embeddingGenerator);
 
 services.AddSingleton<IPromptObserver, PromptDump>();
 
+const string name = "bouw";
+const string indexName = "bouw-index";
+const string url = "https://www.bpfbouw.nl/sitemap.xml";
+
 // Configure Rag.NET
 services
-    .AddRagNet(static rag => rag
+    .AddRagNet(name, static rag => rag
         .UseChunkingStrategy<RecursiveChunkingStrategy>(static options =>
         {
             options.MaxChunkSize = 1000;
@@ -46,7 +49,7 @@ services
         })
         .UseAzureAISearch(
             endpoint: new Uri(Environment.GetEnvironmentVariable("AZURE_AI_SEARCH_URL")!),
-            indexName: "web-index",
+            indexName: indexName,
             credential: new AzureKeyCredential(Environment.GetEnvironmentVariable("AZURE_AI_SEARCH_KEY")!)
         )
         .AddHtmlParser()
@@ -56,15 +59,17 @@ services.AddClass1Cache<Class1>();
 
 var provider = services.BuildServiceProvider();
 
-
 var cla = provider.GetRequiredService<IClass1>();
 cla.X();
 cla.X();
 
-var vectorStore = (AzureAISearchVectorStore)provider.GetRequiredService<IVectorStore>();
+var pipelineFactory = provider.GetRequiredService<IRagPipelineFactory>();
+var pipeline = (RagPipeline) pipelineFactory.Get(name);
+
+var vectorStore = (AzureAISearchVectorStore)pipelineFactory.GetVectorStore(name);
 await vectorStore.InitializeAsync();
 
-var pipeline = provider.GetRequiredService<IRagPipeline>();
+
 
 var progress = new Progress<IngestionProgress>(static p => Console.WriteLine($"{p.DocumentId} {p.Stage} {p.Message}"));
 
@@ -93,14 +98,6 @@ var httpClient = new HttpClient
 {
     //BaseAddress = new Uri("https://www.abp.nl")
 };
-//var myProvider = new WebCrawlerDataProvider("https://www.abp.nl", httpClient, new WebCrawlerOptions
-//{
-//    MaxDepth = 3,
-//    MaxPages = 100,
-//    SameDomain = true,
-//    RespectRobotsTxt = false
-//});
-
 var excludedUrls = new List<string>
 {
     "https://www.abp.nl/werkgevers",
@@ -113,19 +110,19 @@ var excludedUrls = new List<string>
     "https://www.abp.nl/videos",
     "https://www.abp.nl/over-deze-site"
 };
-var mySiteMap = new MySitemapDataProvider("https://www.abp.nl/sitemap.xml", httpClient, excludedUrls);
+var mySiteMap = new MySitemapDataProvider(url, httpClient, excludedUrls);
 
 var baseMetadata = new DocumentMetadata
 {
-    DocumentId = new DocumentId("dummy"),
-    FileName = "dummy.pdf",
+    DocumentId = new DocumentId(name),
+    FileName = $"{name}.html",
     ContentType = "text/html"
 };
 
-var hashStorePath = @"c:\users\stefheyenrath\downloads\rag-content-hashes.json";
+var hashStorePath = $@"c:\users\stefheyenrath\downloads\{indexName}.json";
 var hashStore = new JsonFileContentHashStore(hashStorePath);
 
-var result = await pipeline.IngestFromProviderAsync(mySiteMap, new ProviderId("web"),
+var result = await pipeline.IngestFromProviderAsync(mySiteMap, new ProviderId(name),
     hashStore: hashStore,
     progress: progress,
     baseMetadata: baseMetadata,
@@ -146,7 +143,7 @@ var o = new RagOptions
     //""",
     //
     SystemPrompt =
-    """
+    $"""
         Je bent een behulpzame assistent die vragen beantwoordt.
 
         Volg deze richtlijnen bij het beantwoorden van vragen:
@@ -158,8 +155,8 @@ var o = new RagOptions
         - Als er een link in de bron staat zoals (/pensioen-bij-abp/pensioenreglement/uw-keuzes-als-u-met-pensioen-gaat), vervang deze dan door LINK_1, LINK_2, enzovoort.
         - Zet onderaan het antwoord een lijst van de gebruikte links met de echte complete URL. Bijvoorbeeld: 
           Links:
-           - LINK_1: https://www.abp.nl/pensioen-bij-abp/pensioenreglement/uw-keuzes-als-u-met-pensioen-gaat
-           - LINK_2: https://www.abp.nl/uw-situatie-verandert/relatie-en-prive/uit-elkaar-gaan
+           - LINK_1: {url}/pensioen-bij-abp/pensioenreglement/uw-keuzes-als-u-met-pensioen-gaat
+           - LINK_2: {url}/uw-situatie-verandert/relatie-en-prive/uit-elkaar-gaan
         - Wanneer je geen goed antwoord kunt geven op basis van de bronnen, geef dan 'Ik kan geen relevante informatie vinden.'
     """,
     TopK = 10,
