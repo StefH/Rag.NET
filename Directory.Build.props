@@ -1,5 +1,6 @@
 <Project>
   <PropertyGroup>
+    <Version>0.11.0-preview-01</Version>
     <TargetFramework>net10.0</TargetFramework>
     <!-- Workaround for .NET 10 SDK 10.0.104 regression (tracked upstream):
          MSB3492 ("Could not read existing cache file") fires during the CLI's
@@ -33,6 +34,8 @@
          tests/Rag.NET.PackageValidation.Tests, not the SDK. -->
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageOutputPath>C:\dev\Rag.NET-NuGets</PackageOutputPath>
   </PropertyGroup>
 
   <ItemGroup>

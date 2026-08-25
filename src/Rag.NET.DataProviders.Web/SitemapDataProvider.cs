@@ -71,7 +71,7 @@ public sealed class SitemapDataProvider : IFileContentProvider
     public async IAsyncEnumerable<Result<FileEntry, RagError>> GetFilesAsync(
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        await foreach (var entry in LoadSitemapAsync(_sitemapUrl, cancellationToken).ConfigureAwait(false))
+        await foreach (var entry in LoadSitemapAsync(_sitemapUrl, cancellationToken).Take(40).ConfigureAwait(false))
             yield return entry;
     }
 
