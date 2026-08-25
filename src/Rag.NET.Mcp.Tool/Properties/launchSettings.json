@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "Rag.NET.Mcp.Tool": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:54237;http://localhost:54238"
+    }
+  }
+}
