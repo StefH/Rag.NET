@@ -1,9 +1,14 @@
+using AgentGuard.Core.Abstractions;
+using AgentGuard.Core.ChatClient;
+using AgentGuard.Core.Rules.Secrets;
 using Azure;
 using Azure.AI.OpenAI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using OpenAI;
 using OpenAI.Embeddings;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Trace;
 using Rag.NET.Abstractions;
 using Rag.NET.AzureAISearch;
 using Rag.NET.Chunking;
@@ -17,16 +22,49 @@ using Rag.NET.Models.Options;
 using Rag.NET.Parsers.Html;
 using Rag.NET.Pipeline;
 using Rag.NET.Sample.Web;
+using Rag.NET.Telemetry;
+
+//ChatMessage lastUserMessage = [messages].LastOrDefault((Microsoft.Extensions.AI.ChatMessage m) => m.Role == ChatRole.User);
+
+var ss = await new SecretsDetectionRule(new SecretsDetectionOptions { Action = SecretAction.Redact }).EvaluateAsync(new GuardrailContext
+{
+    Text = "Hi ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqr== XXXX",
+    Phase = GuardrailPhase.Input
+});
 
 AzureOpenAIClient azureClient = new(
     new Uri(Environment.GetEnvironmentVariable("AZURE_OPENAI_URL2")!),
     new AzureKeyCredential(Environment.GetEnvironmentVariable("AZURE_OPENAI_KEY2")!));
 
-IChatClient chatClient = azureClient.GetChatClient("gpt-4.1")
-    .AsIChatClient();
+IChatClient azureChatClient = azureClient.GetChatClient("gpt-4.1")
+    .AsIChatClient()
+    .AsLoggingChatClient();
+
+var guardedClient = azureChatClient
+    .UseAgentGuard(g => g
+    // Layer 1
+    .NormalizeInput()              // decode base64/hex/unicode evasion tricks
+    .DetectSecrets(SecretAction.Redact)               // block API keys, tokens, connection strings
+    .LimitInputTokens(2000)
+    .BlockPromptInjection()        // regex-based injection detection
+    
+
+    // Layer 2
+    //.RedactPii(piio)
+    //.BlockPromptInjectionWithLlm(llmJudgeClient)
+    //.EnforceTopicBoundaryWithLlm(llmJudgeClient, "uitkering", "pensioen")
+
+    //.AddRule(new PiiRule2(piio, analyzer: engine))
+    .GuardRetrieval()              // filter poisoned RAG chunks
+
+    .OnViolation(v => v.RejectWithMessage("Ik kan alleen helpen met pensioen vragen."))
+
+//.GuardToolCalls()              // inspect tool call arguments for injection
+//.GuardToolResults()            // detect indirect injection in tool results
+);
 
 var services = new ServiceCollection();
-services.AddChatClient(chatClient);
+services.AddChatClient(guardedClient);
 
 EmbeddingClient embeddingClient = azureClient.GetEmbeddingClient("text-embedding-3-small");
 var embeddingGenerator = embeddingClient.AsIEmbeddingGenerator();
@@ -40,6 +78,11 @@ const string indexName = "bouw-index";
 const string url = "https://www.bpfbouw.nl/sitemap.xml";
 
 // Configure Rag.NET
+services.AddRagNetInstrumentation()
+    .WithLogging()
+    .WithTracing(t => t.AddConsoleExporter(options => options.Targets = OpenTelemetry.Exporter.ConsoleExporterOutputTargets.Console))
+    .WithMetrics(m => m.AddConsoleExporter(options => options.Targets = OpenTelemetry.Exporter.ConsoleExporterOutputTargets.Console));
+
 services
     .AddRagNet(name, static rag => rag
         .UseChunkingStrategy<RecursiveChunkingStrategy>(static options =>
@@ -57,6 +100,7 @@ services
 
 services.AddClass1Cache<Class1>();
 
+
 var provider = services.BuildServiceProvider();
 
 var cla = provider.GetRequiredService<IClass1>();
@@ -73,31 +117,7 @@ await vectorStore.InitializeAsync();
 
 var progress = new Progress<IngestionProgress>(static p => Console.WriteLine($"{p.DocumentId} {p.Stage} {p.Message}"));
 
-//var metadata = new DocumentMetadata
-//{
-//    DocumentId = new DocumentId("field-guide-to-data-science"),
-//    FileName = "2015-field-guide-to-data-science-160211215115.pdf",
-//    ContentType = "application/pdf",
-//    CreatedAt = DateTime.Now,
-//    UpdatedAt = DateTime.Now
-//};
-
-//await using var stream = File.OpenRead(@"c:\users\stefheyenrath\downloads\2015-field-guide-to-data-science-160211215115.pdf");
-
-//var result = await pipeline.IngestAsync(stream, metadata, progress: progress);
-//if (result.IsSuccess)
-//{
-//    Console.WriteLine($"Stored {result.Value.ChunksStored} chunks");
-//}
-//else
-//{
-//    Console.WriteLine($"Ingestion failed: {result.Error}");
-//}
-
-var httpClient = new HttpClient
-{
-    //BaseAddress = new Uri("https://www.abp.nl")
-};
+var httpClient = new HttpClient();
 var excludedUrls = new List<string>
 {
     "https://www.abp.nl/werkgevers",
@@ -135,13 +155,6 @@ foreach (var error in result.Errors)
 
 var o = new RagOptions
 {
-    //SystemPrompt =
-    //"""
-    //    You are a helpful assistant that answers questions based on the provided context.
-    //    When you cannot give a good answer based on the sources, return 'I cannot find any relevant information.'
-    // Vertaal "[Source 1]" naar "[Bron 1]", "[Source 2]" naar "[Bron 2]", enzovoort. En zet de bronnen in een lijst onderaan het antwoord.
-    //""",
-    //
     SystemPrompt =
     $"""
         Je bent een behulpzame assistent die vragen beantwoordt.
@@ -165,7 +178,8 @@ var o = new RagOptions
     //Temperature = 0.4f
 };
 
-var vraag = "Mijn partner en ik gaan uit elkaar. Wat is er dan met mijn pensioen, waar moet ik rekening mee houden?";
+//var vraag = "Mijn partner en ik gaan uit elkaar. Wat is er dan met mijn pensioen, waar moet ik rekening mee houden?";
+var vraag = "Hello ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqr== !";
 var ragResponse = await pipeline.AskAsync(vraag, o);
 
 Console.WriteLine($"{new string('-', 80)}\r\n{ragResponse.Answer}");
@@ -182,7 +196,7 @@ sources.Values.Distinct(StringComparer.OrdinalIgnoreCase)
     .ToList()
     .ForEach(url => Console.WriteLine($"URL: {url}"));
 
-var suite = new RagasEvaluationSuiteBuilder(chatClient, embeddingGenerator)
+var suite = new RagasEvaluationSuiteBuilder(azureChatClient, embeddingGenerator)
     .AddFaithfulness()
     .AddAnswerRelevance()
     .AddContextPrecision()
@@ -259,7 +273,7 @@ var messages = new List<ChatMessage>
         """),
 };
 
-var x = await chatClient.GetResponseAsync(messages);
+var x = await guardedClient.GetResponseAsync(messages);
 Console.WriteLine("\r\nVervolgvragen:\r\n" + x.Text);
 
 

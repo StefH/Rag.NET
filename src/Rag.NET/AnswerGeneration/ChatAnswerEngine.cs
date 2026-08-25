@@ -59,6 +59,9 @@ public sealed class ChatAnswerEngine(
 
         var (messages, chatOptions) = await BuildMessagesAsync(sources, query, opts, cancellationToken).ConfigureAwait(false);
 
+        // Stef
+        ChatMessage? lastUserMessage = messages.LastOrDefault(m => m.Role == ChatRole.User);
+
         var sw = Stopwatch.StartNew();
         try
         {

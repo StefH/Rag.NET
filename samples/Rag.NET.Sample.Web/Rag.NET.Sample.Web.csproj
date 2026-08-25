@@ -13,9 +13,11 @@
     <ProjectReference Include="..\..\src\Rag.NET.Evaluation.Ragas\Rag.NET.Evaluation.Ragas.csproj" />
     <ProjectReference Include="..\..\src\Rag.NET.Evaluation\Rag.NET.Evaluation.csproj" />
     <ProjectReference Include="..\..\src\Rag.NET.Parsers.Html\Rag.NET.Parsers.Html.csproj" />
+    <ProjectReference Include="..\..\src\Rag.NET.Telemetry\Rag.NET.Telemetry.csproj" />
     <ProjectReference Include="..\..\src\Rag.NET.VectorStores.AzureAISearch\Rag.NET.VectorStores.AzureAISearch.csproj" />
     <ProjectReference Include="..\..\src\Rag.NET\Rag.NET.csproj" />
     <ProjectReference Include="..\..\src\Rag.NET.Parsers.Pdf\Rag.NET.Parsers.Pdf.csproj" />
+    <PackageReference Include="AgentGuard" />
     <PackageReference Include="Microsoft.Extensions.AI" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
@@ -23,6 +25,8 @@
     <!--<PackageReference Include="Testcontainers.PostgreSql" />-->
 
     <PackageReference Include="Azure.AI.OpenAI" />
+
+    <PackageReference Include="OpenTelemetry.Exporter.Console" />
 
     <PackageReference Include="ZeroAlloc.Cache" />
 
