@@ -74,8 +74,42 @@ on `main`** — corrected 2026-08-25. Statuses are written when a phase is plann
 editing this file at the moment its PR merges, which is the same failure the Working State branch
 field has now had three times.
 
-**Last completed:** **the pipeline-parity test's fast leg, 2026-08-27, on `feat/pipeline-parity-test`
-(not yet merged)** — `OrderingEmbeddingGenerator`, `PipelineParity` and `PipelineParityTests`
+**Last completed:** **the full 2,556-query answer-engine sweep, 2026-08-30 — it ran, and its accuracy
+figures are not an engine comparison.** 15,336 records, 6.5 hours, 15 tests / 0 failed / 0 skipped.
+**Gate 0 held exactly** — `dense` reproduced its pinned 0.3499 / 0.2603 / 0.3242 to four decimals, so
+the corpora did not diverge and the run is sound. Then the control moved: `chatengine` shares
+`dense`'s retrieval verbatim yet scored **+0.4204 paper and −0.0541 raw** against it. The cause is
+that **`PromptTemplate` carries three instructions — grounding, abstention, extraction — and
+`EngineAnswerOptions` passes only the third**; #418 found one of three. `dense` abstains on 61.8% of
+answerable queries because it was told to, and **every engine arm abstains 0 of 301 on the
+unanswerable ones**, five times over. Nothing is pinned; the DoD's answer-engine clause is still
+unmet. The re-run is deferred — see Recommended Next Step. Full account in
+`docs/plans/2026-08-30-answer-engine-sweep-findings.md`.
+
+Before it, **the FLARE contract-and-cache fix, 2026-08-29, merged to `main` as `50221812`
+in #419** — #418 (merged to `main`
+2026-08-29 as `e7563873`) gave every engine arm the judge's extraction contract and broke FLARE doing
+it: a terminal `SystemPrompt` fighting FLARE's own one-sentence-at-a-time protocol produced an
+86,091-byte runaway (23× the historical maximum), reachable because `CachedGraphRagClient` also
+discarded FLARE's `MaxOutputTokens` guard. **The third time in this phase a fix has caused the next
+defect** (6.2.12 had #390 → #396 → #400). Five commits (`d8b86bba`..`1d9f4f2b`) fix FLARE's fragment
+protocol, the cache key (new optional field, omitted not emptied, zero regeneration across 86,510
+entries), the client's option-forwarding, and the harness's contract application. A re-run pilot,
+2026-08-29 — 15 tests, 0 failed, 0 skipped, 469 new cache entries — found every engine arm meeting the
+extraction contract on 8 or 9 of 9 queries (up from 0 of 9), three arms at 8 rather than 9. **This
+does not close Phase 6.2.1's answer-engine DoD clause**, which still needs the full 2,556-query sweep.
+Full account in `ROADMAP.md`'s 6.2.1 block and `docs/plans/2026-08-29-flare-contract-pilot-notes.md`.
+
+Before it, **the answer-engine arms, 2026-08-28, merged in #416 (`d2d96b0d`)** — five arms sharing
+dense retrieval and varying only generation (`chatengine` the control, `mapreduce`, `refine`,
+`flarefixed`, `flare`), three pilot gates (context identity, call shape, lookahead firing), and a
+corrected cost model (~$4 realistic / ~$21 worst case for the 2,556-query sweep, dominated by FLARE's
+sentence count). `flare` shipped with a real retriever because #414 merged mid-implementation as
+`641e27f0`. A 10-query pilot then ran 2026-08-28 and found every non-`dense` arm missing the judge's
+extraction contract entirely (0 of 9) — the defect #418 fixed, and the fix that broke FLARE above.
+Before that, **the pipeline-parity test's fast leg, 2026-08-27** — now
+merged as **#414** (`641e27f0`), verified on `main` by content (`PipelineParity.cs` present) rather
+than by the PR's label — `OrderingEmbeddingGenerator`, `PipelineParity` and `PipelineParityTests`
 compare a real `AddRagNet` pipeline against the harness's dense row with exact score equality; the
 mutation check ran and failed with a named-rank, both-ids-and-scores message; the real SciFact leg
 was written and reviewed but has never run on this machine and is verified by reading only. Before
@@ -183,6 +217,29 @@ the extraction cache was replayed refuse-on-miss.
 
 ## Recommended Next Step
 
+**The sweep ran on 2026-08-30 and found a confound rather than a comparison, and the operator
+deferred the re-run the same day. So the answer-engine thread is parked, and the cheapest open
+threads are what to pick up next.**
+
+**When the re-run is funded, the fix is one line and the guard is the valuable part.**
+`EngineAnswerOptions` must carry the whole of `PromptTemplate`'s contract — grounding ("using only
+the context"), abstention ("answer exactly: Insufficient information") and the extraction
+instruction — not just the third. **Add a test asserting the engine arms and the `dense` path answer
+under the same instruction set**; it fails today, which is exactly why it is worth having. Cost:
+~$5–10 and ~6.5 hours, because it changes every engine prompt and therefore every engine cache key.
+**Do not re-run without the guard** — this is the fourth fix in the phase to leave an adjacent gap,
+and the previous three were each found by running rather than by reading.
+
+**Budget the re-run at 6.5 hours, not 3–4.** The protocol's estimate came from extrapolating the
+nine-query pilot's rate and was wrong by ~2×. That is the second time here a pilot rate has failed
+to survive extrapolation, after RAPTOR's factor of eight; the pattern is now well enough evidenced
+to plan against.
+
+Until then, **HyDE and reranking's re-measurement under the
+Real protocol remains the cheapest thread open in the phase that needs no money and no
+provisioning** (see below) — it can proceed in parallel with waiting for the pilot machine, not
+instead of the pilot.
+
 **~~RAPTOR Task 6~~ — DONE 2026-08-27. RAPTOR is the sweep's first completed technique.** The
 ledger the Task 5 measurement earned is now written: `docs/guide/raptor.md` has a `## Measured`
 section, `Rag.NET.Raptor.csproj` is `<VerifiedBy>benchmark</VerifiedBy>`, and
@@ -204,7 +261,8 @@ questions resemble MultiHop-RAG's, set `PerDocument`; if your documents genuinel
 `Corpus` is the paper's mechanism; either way measure your own corpus.
 
 **What is next is a choice between threads, and nothing forces the order.** The phase now owes
-HyDE, reranking, hybrid BM25, late chunking, SPLADE, the three answer engines as arms, every vector
+HyDE, reranking, hybrid BM25, late chunking, SPLADE, ~~the three answer engines as arms~~ (**built
+2026-08-28**, not yet merged, not yet run — see above), every vector
 store through the SciFact parity leg, the second-corpus RAPTOR arm, and local search's unexplained
 yes/no abstention. ~~**The recommendation is the pipeline-parity test**: it is fast-tier, needs no
 corpus run and no model calls, closes the gap 5.2.2 named explicitly, and is the one remaining DoD
@@ -426,9 +484,80 @@ much larger than answer generation's.
 
 ## Working State
 
-**Branch:** `feat/pipeline-parity-test`, cut from `origin/main` (`ab87d156`) on 2026-08-27. This
-task: `docs/planning/ROADMAP.md` and this file only, recording the pipeline-parity thread built by
-the five tasks before it — no code.
+> **This section no longer records a branch name, and that is the fix for the defect described
+> below.** A branch name is a *mutable pointer*: it is correct only while its branch is unmerged,
+> and it goes wrong at the exact moment the branch merges — which is the one moment nobody is
+> editing this file. It went stale **seven times out of seven**, every single time, and three
+> separate sessions "fixed" it by writing a fresh name that was itself stale within the day.
+>
+> **Derive the branch instead — `git branch --show-current`.** It is one command, it is always
+> right, and it cannot rot.
+>
+> What this section records now is **immutable**: what last landed on `main`, as a commit SHA, with
+> a symbol to verify it by content. Commits do not move. If you need to know whether that work is
+> really on `main`, grep for the symbol — do not trust a PR's MERGED label, which has been wrong
+> here before.
+
+**Last landed on `main`:** **#419** as `50221812` (2026-08-29) — the FLARE contract-and-cache fix.
+Verify by content: `FragmentProtocol` in `src/Rag.NET.AnswerEngines/FlareAnswerEngine.cs`,
+`ThrowIfUnkeyable` in
+`benchmarks/Rag.NET.Benchmarks.Quality.GraphExtractions/CachedGraphRagClient.cs`.
+
+Before it, **#418** as `e7563873` (2026-08-29) — gives every engine arm the judge's
+extraction contract as `RagOptions.SystemPrompt`. Verify by content:
+`SystemPrompt = MultiHopRagAnswerJudge.AnswerInstruction` appears in
+`tests/Rag.NET.Benchmarks.Quality.IntegrationTests/BeirGraphRagAnswerTests.cs`. This field was stale
+by two PRs (#417 `b5a48a94`, #418 `e7563873`) when this session opened; corrected then.
+
+Before it, **#417** as `b5a48a94` — fixed this field the previous time and recorded what the
+provisioned machine measured. Before that, **#416** as `d2d96b0d` (2026-08-28) — the five
+answer-engine arms and their pilot gates (`AnswerEngineArms.cs`, `AnswerEngineArmsTests.cs` under
+`tests/Rag.NET.Benchmarks.Quality.IntegrationTests/`, `chatengine` in `AnswerArm.cs`).
+
+**#419 landed on `main` 2026-08-29 as `50221812`, verified by content** — `FragmentProtocol` and
+`ThrowIfUnkeyable` are both present there — **rather than by the PR's MERGED label.** #418 broke
+FLARE — a terminal `SystemPrompt` fighting FLARE's own fragment protocol produced an 86,091-byte
+runaway, 23× the historical maximum, because `CachedGraphRagClient` also discarded FLARE's
+`MaxOutputTokens` guard. Twelve commits fix the fragment protocol, the cache
+key (a new optional field, omitted rather than emptied, so all 86,510 existing entries keep their
+keys), the client's option-forwarding, and the harness's contract application. A re-run pilot,
+2026-08-29, passed 15/15 with 0 skipped, and every engine arm now meets the judge's extraction
+contract on 8 or 9 of 9 queries (up from 0 of 9). Full account in
+`docs/planning/ROADMAP.md`'s 6.2.1 block and `docs/plans/2026-08-29-flare-contract-pilot-notes.md`.
+
+**This paragraph said "Not on `main`… in flight, not merged" until #419 merged, which is the eighth
+time a claim in this file has been falsified at the exact moment its branch landed.** It was true
+when written and inverted an hour later. The Working State field above was redesigned to be immutable
+for precisely this reason; prose elsewhere in the file is not, so a merge-status sentence anywhere
+but that field is a liability with a short shelf life.
+
+**Nothing here needs updating when a branch merges** — only when new work lands, which is the moment
+someone is already editing this file.
+
+## Measured 2026-08-28 — the machine was provisioned all along
+
+**Both things this session called unmeasurable were measurable.** `~/.cache/ragnet-beir` holds the
+corpus, `model.onnx`, `vocab.txt` and 256 embedding shards, and ships an `env.sh` that points the
+harness at them. The tests skip because **no environment variable is set**, not because anything is
+missing — and three sessions read that skip as "this machine cannot measure" and wrote it into the
+record. Source `env.sh` before writing *unprovisioned* anywhere.
+
+- **Pipeline parity, both legs: PASS**, zero skipped, 90.5 s. The SciFact leg ran for the first time —
+  20 queries, real ONNX embedder, `AblationRow.Dense` against a real `AddRagNet` pipeline over one
+  shared store, chunk ids and exact scores identical at every rank. **The sixteen default retrieval
+  behaviours are no-ops on real data**, which until now was asserted only by reading.
+- **Answer-engine pilot, 10 queries, 6 arms: PASS**, 15 tests, 0 failed, 0 skipped, 41 m (most of it
+  cache-replayed graph construction). All three gates held first time, including the lookahead gate
+  whose guarantee had been wrong in four successive versions.
+- **FLARE measured at ~11 calls per query against a ceiling of 33**, so the full sweep is on the
+  order of $5–10 rather than the derived $4–$21. Full reading in `ROADMAP.md`'s 6.2.1 entry.
+- **The predicted format-versus-reasoning confound is real and visible in the answers**: `dense`
+  answers "Trump" and scores correct where every engine answers discursively and scores wrong. No
+  accuracy headline is published from nine queries.
+
+**The seven occurrences are recorded below and are left as written.** They are the evidence that
+the field was structurally broken rather than repeatedly forgotten, and the reason it was replaced
+above rather than re-filled an eighth time.
 
 **It was stale again when this session opened, for the sixth time.** The field named
 `chore/reconcile-408-and-raptor-task-6` while the checkout was already on
