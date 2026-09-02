@@ -4269,7 +4269,10 @@ guards' allowlist is empty.
 
 **Open threads, 2026-08-20** — what is actually left, now that #247 and the local-search work have
 closed: ~~RAPTOR~~ (**complete 2026-08-27**, Tasks 1-6 — measured, pinned, and written down; see
-below), HyDE, reranking, hybrid BM25, late chunking and SPLADE under the Real protocol; ~~the
+below), ~~HyDE~~ (**SciFact measured 2026-09-02 in #433**, 0.71389 against the Real control's
+0.67742, +0.03647; **FiQA measured the same day**, 0.34683 against 0.35569, −0.00886, so the sign is the corpus rather than the technique; ArguAna and TREC-COVID unrun and each now measurable alone — see below), reranking
+(**SciFact and FiQA measured 2026-09-02 in the same PR**, +0.01266 and −0.00951; ArguAna and
+TREC-COVID unrun), hybrid BM25, late chunking and SPLADE under the Real protocol; ~~the
 three answer engines as arms~~ (**built 2026-08-28** on `feat/answer-engine-arms`, not yet merged —
 five arms, `flare` included; no pilot run; see below); every vector store through the SciFact parity
 leg; ~~the
@@ -4872,6 +4875,98 @@ as a live question rather than a hedge.
 ~~**The full sweep must not be funded until the arms are under equivalent treatment**~~ — ~$20 would buy
 three differently broken arms measured at higher precision. Nothing is pinned. The DoD's
 answer-engine clause remains unmet.
+
+**HyDE's thread completed 2026-09-02 — the sweep's second technique after RAPTOR, and its first
+under the Real protocol.** #433 (`e4923341`, verified on `main` by content: `0.71389` in
+`BeirReproduction.cs`, `UnderCachedHyde_` in `BeirRunBudget.cs`) wired and measured HyDE and
+reranking over Rag.NET's own chunking rather than parity's one-chunk-per-document units, which is
+the corpus no user runs.
+
+**SciFact RealHyde 0.71389 against its control, the Real cell's 0.67742 — +0.03647**, reproduced by
+a second run agreeing to five decimals and now asserting rather than reporting. Recall@10 0.85856,
+MRR@10 0.67295, 20,155 units over 5,183 of 5,183 documents, 21,355 embedding-cache hits and 0
+misses, no model calls, no spend. HyDE reordered 300 of 300 queries.
+
+~~**The finding is the shrinkage, not the sign.**~~ **Corrected 2026-09-02 by FiQA's cell, and the
+correction is the more useful finding.** This paragraph originally read the SciFact pair — +0.055 at
+parity over a 0.645 dense anchor against +0.036 over 0.67742 — as "HyDE buys roughly two-thirds as
+much on the corpus this library actually produces as it does on whole documents". That is a ratio
+from **one dataset** presented as the shape of the result, and the second dataset does not merely
+fail to confirm it: it moves the other way.
+
+| dataset | parity dense | parity HyDE | Δ | real dense | real HyDE | Δ |
+| --- | --- | --- | --- | --- | --- | --- |
+| SciFact | 0.64593 | 0.70001 | **+0.05408** | 0.67742 | 0.71389 | **+0.03647** |
+| FiQA | 0.37086 | 0.36543 | **−0.00543** | 0.35569 | 0.34683 | **−0.00886** |
+
+**HyDE's sign is a property of the corpus, not of the protocol.** Positive stays positive and
+negative stays negative across both protocols. What the chunked corpus changes is the *magnitude*,
+and **not in a consistent direction** — SciFact's advantage shrinks toward zero while FiQA's deficit
+grows away from it. There is no single ratio to quote, and quoting one was the error.
+
+**Note that HyDE was already slightly negative on FiQA at parity.** The library's own ablation table
+has carried 0.36543 against a 0.37086 anchor since Phase 3.15, so "HyDE helps" was never this
+project's finding — it was SciFact's, and nobody had said so.
+
+**Reranking behaves the same way and was measured in the same PR**: SciFact +0.01266 (0.69008 against
+0.67742) where its parity cell is +0.039, and FiQA −0.00951 (0.34618 against 0.35569, 648 of 648
+queries reordered). **Two of two techniques measured on two datasets are corpus-dependent in sign.**
+That is the load-bearing result for the rest of the sweep: a technique cell pinned on SciFact alone
+says almost nothing about whether a user should switch the technique on, so the remaining cells
+(hybrid BM25, late chunking, SPLADE) want at least two corpora before anything is concluded from
+them. Costed rather than assumed: FiQA's HyDE cell was 29 m 47 s and paid no model calls.
+
+**What survives from the original claim** is the weaker and still-useful half: a parity-corpus
+ablation figure is not a statement about the corpus this library produces, in either direction. It
+overstated HyDE's help on SciFact and understated its harm on FiQA.
+
+**Cost is recorded as two numbers per cell, because cold and warm differ by 16–18x** — SciFact
+199.5 s then 12.5 s, FiQA 1,786.9 s then 99.3 s, each pair on the same machine and binary with
+nothing changed between them. **Two cells agreeing on the ratio makes it a property of these runs
+rather than one odd measurement.** The candidate cause is the OS page cache over the embedding
+cache's shard files, recorded as a **candidate and not a diagnosis**; in-process chunking is redone
+on every run, so it is not that. `BeirRunBudget` carries both figures per cell and says to budget
+against the cold one. This is the same shape as the 23x artefact that produced three false findings
+in one day, caught this time because each pin was confirmed by a second run rather than trusted from
+one — and both nDCG figures reproduced to five decimals while their timings did not.
+
+**#433 was red on CI for a day and nobody had read why**, which is the part worth carrying forward.
+Adding `RealHyde` and `RealReranked` to `BeirProtocol` left three exhaustive constructs behind —
+`BeirRunBudget.Describe`, `BeirRunBudget.Filter` and `BeirReproduction`'s required-pair set — and
+each threw rather than skipped. **None of it was reachable on the machine that wrote the cells**:
+`Explain` runs only when a case is *gated off*, the measurement ran with the opt-in set, so the gate
+returned before `Explain` was ever built. The defect was invisible in exactly the configuration that
+produced the figures and immediate in the one CI uses. A green local run over a gated-off suite is
+not evidence about the gated-off path.
+
+**And the filter arms could not simply be added.** `Filter`'s discriminators are substring matches
+and the new methods are named as extensions of the old ones, so `UnderCachedHyde` became a prefix of
+`NdcgAt10_UnderCachedHydeOverRealChunking` and the *parity* cell's printed command silently selected
+the *Real* cell too — handing a reader an expensive measurement they did not ask for, under an exit
+code saying everything ran as priced. `EveryCellsPrintedFilterCanSelectATest` could not see it: it
+asks whether a filter selects anything, not whether it selects only what it names.
+`NoCellsDiscriminatorIsContainedInAnothers` asks the second question.
+
+**The gate that made the measurement safe landed with it, as #439** (`f66b1677`, verified by content:
+`IsOptedInFor` in `BeirRunBudget.cs`). `RAGNET_BEIR_LONG_RUNS` was binary, and xunit filters on
+classes and methods but never on theory arguments, so measuring one cell ran its theory across every
+dataset. The datasets are not interchangeable: **TREC-COVID's Real leg has never been embedded and
+its corpus is 33x SciFact's**, so a run aimed at SciFact would chunk and embed that corpus from cold
+on the way past and then fail on refuse-on-miss, because its hypotheticals were never generated —
+hours of compute spent reaching a guaranteed failure. That is not hypothetical: **FiQA's
+`RealReranked` cell ran 6 h 18 m on 2026-09-01 for exactly this reason**, unscheduled, and its own
+commit message says so.
+
+`=1` and `=true` still mean every dataset; `=scifact` or `=scifact,fiqa` mean those alone; anything
+else **throws** rather than widening, because the old rule was "anything else present is on" and that
+turns a typo into the most expensive run available. The skip messages print the scoped form. **Every
+remaining technique cell in this phase is now measurable one dataset at a time**, which is most of
+why it was worth doing before the measurement rather than after.
+
+**What this leaves open in the sweep:** hybrid BM25, late chunking and SPLADE under the Real
+protocol; HyDE and reranking on the three datasets each still lacks (FiQA's RealHyde is the cheapest
+of them — its chunked corpus is already embedded and its hypothetical cache exists); every vector
+store through the SciFact parity leg; local search's yes/no abstention; and `refine`'s caveat above.
 
 ### Phase 6.2.2: Requested Features [status: complete 2026-08-16 — #252 built and exercised; the phase stays open in spirit for any further request filed before the tag]
 **Goal:** the feature requests reported against the shipped packages, built and exercised to this

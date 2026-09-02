@@ -101,6 +101,131 @@ public sealed class BeirRunBudgetTests
     }
 
     [Fact]
+    public void AnAbsentOptIn_GatesEveryDatasetOff()
+    {
+        // The default, and the one the nightly depends on: no variable means no expensive run.
+        Assert.False(BeirRunBudget.IsOptedInFor(null, "scifact"));
+        Assert.False(BeirRunBudget.IsOptedInFor(string.Empty, "scifact"));
+        Assert.False(BeirRunBudget.IsOptedInFor("   ", "scifact"));
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("false")]
+    [InlineData("FALSE")]
+    public void AnOffValue_GatesEveryDatasetOff(string value)
+    {
+        // "RAGNET_BEIR_LONG_RUNS=0 reads to every human as off", and did before this change.
+        Assert.False(BeirRunBudget.IsOptedInFor(value, "scifact"));
+        Assert.False(BeirRunBudget.IsOptedInFor(value, "trec-covid"));
+    }
+
+    [Theory]
+    [InlineData("1")]
+    [InlineData("true")]
+    [InlineData("TRUE")]
+    public void AWholesaleOptIn_StillOptsInEveryDataset(string value)
+    {
+        // Backwards compatibility, asserted rather than assumed: every documented invocation in
+        // this repository is =1, and all thirteen of them must keep meaning what they meant.
+        foreach (var descriptor in BeirDatasetDescriptor.All)
+        {
+            Assert.True(
+                BeirRunBudget.IsOptedInFor(value, descriptor.Name),
+                $"{value} must still opt in {descriptor.Name}, as it did before the gate learned " +
+                "about dataset names.");
+        }
+    }
+
+    [Fact]
+    public void ADatasetName_OptsInThatDatasetAlone()
+    {
+        // The whole point. Measuring one cell must not ungate the other three, because the
+        // expensive ones are not the one being measured: TREC-COVID's Real leg has never been
+        // embedded, so a case that ungates it chunks a corpus 33x SciFact's before failing.
+        Assert.True(BeirRunBudget.IsOptedInFor("scifact", "scifact"));
+        Assert.False(BeirRunBudget.IsOptedInFor("scifact", "fiqa"));
+        Assert.False(BeirRunBudget.IsOptedInFor("scifact", "arguana"));
+        Assert.False(BeirRunBudget.IsOptedInFor("scifact", "trec-covid"));
+    }
+
+    [Fact]
+    public void AListOfDatasetNames_OptsInEachOfThemAndNothingElse()
+    {
+        Assert.True(BeirRunBudget.IsOptedInFor("scifact,fiqa", "scifact"));
+        Assert.True(BeirRunBudget.IsOptedInFor("scifact,fiqa", "fiqa"));
+        Assert.False(BeirRunBudget.IsOptedInFor("scifact,fiqa", "arguana"));
+    }
+
+    [Fact]
+    public void SurroundingWhitespaceAndCasing_DoNotChangeWhichDatasetsAreSelected()
+    {
+        // A shell heredoc and a copied-out command both produce these, and a gate that silently
+        // read " scifact" as an unknown name would throw on a value the author got right.
+        Assert.True(BeirRunBudget.IsOptedInFor(" scifact , fiqa ", "fiqa"));
+        Assert.True(BeirRunBudget.IsOptedInFor("SciFact", "scifact"));
+        Assert.False(BeirRunBudget.IsOptedInFor(" scifact , fiqa ", "trec-covid"));
+    }
+
+    [Fact]
+    public void AnUnknownName_ThrowsRatherThanWideningToEveryDataset()
+    {
+        // The failure mode this gate exists to remove, in its most likely form: a typo. Widening
+        // to every dataset on an unrecognised value is what the old rule did -- "anything else
+        // present is on" -- and it is how a run nobody scheduled cost 6 h 18 m. A typo must stop
+        // the run, not silently buy the largest one available.
+        var thrown = Assert.Throws<InvalidOperationException>(
+            () => BeirRunBudget.IsOptedInFor("scifct", "scifact"));
+
+        Assert.Contains("scifct", thrown.Message, StringComparison.Ordinal);
+        Assert.Contains("scifact", thrown.Message, StringComparison.Ordinal);
+        Assert.Contains(BeirRunBudget.OptInVariable, thrown.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AKnownNameBesideAnUnknownOne_ThrowsRatherThanMeasuringThePartItUnderstood()
+    {
+        // Partial credit is the wrong answer here. "scifact,fiqua" reads as two datasets to its
+        // author and would measure one, reporting a green run that answered half the question --
+        // and the half it dropped is invisible in a passing summary.
+        var thrown = Assert.Throws<InvalidOperationException>(
+            () => BeirRunBudget.IsOptedInFor("scifact,fiqua", "scifact"));
+
+        Assert.Contains("fiqua", thrown.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheSkipMessagesCommand_OptsInOnlyTheCasesOwnDataset()
+    {
+        // The skip message is where a reader learns how to run the case, so it is also where they
+        // learn what the variable means. Printing =1 teaches the reading this change exists to
+        // remove: it ungates all four datasets to measure one, which is how FiQA's RealReranked
+        // cell ran 6 h 18 m unscheduled. The command a message prints must be the safe one.
+        foreach (var descriptor in BeirDatasetDescriptor.All)
+        {
+            foreach (var protocol in Enum.GetValues<BeirProtocol>())
+            {
+                if (!descriptor.Supports(protocol)
+                    || BeirRunBudget.FitsTheNightly(descriptor.Name, protocol))
+                {
+                    continue;
+                }
+
+                var message = BeirRunBudget.ExplainFor(descriptor.Name, protocol);
+
+                Assert.Contains(
+                    $"{BeirRunBudget.OptInVariable}={descriptor.Name}",
+                    message,
+                    StringComparison.Ordinal);
+                Assert.DoesNotContain(
+                    $"{BeirRunBudget.OptInVariable}=1",
+                    message,
+                    StringComparison.Ordinal);
+            }
+        }
+    }
+
+    [Fact]
     public void EveryCellsPrintedFilterCanSelectATest()
     {
         // The third thing a skip message promises, after what did not run and what it costs: the
@@ -155,6 +280,65 @@ public sealed class BeirRunBudgetTests
             "alternation with a dead branch does the same thing more quietly, selecting a subset " +
             "under an exit code that says everything the cell prices ran." + Environment.NewLine +
             "  - " + string.Join(Environment.NewLine + "  - ", failures));
+    }
+
+    [Fact]
+    public void NoCellsDiscriminatorIsContainedInAnothers()
+    {
+        // The sibling test above asks whether a filter selects ANYTHING. This asks whether it
+        // selects only what it names, which is a different question and became a live one the
+        // moment a protocol was named as an extension of an existing one: RealHyde's method is
+        // NdcgAt10_UnderCachedHydeOverRealChunking, so the parity Hyde cell's discriminator
+        // "UnderCachedHyde" is a prefix of it and its printed filter now selects both cells.
+        //
+        // That is worse than selecting nothing, because it does not look like a failure. A reader
+        // who follows the parity cell's command gets two measurements, the expensive one of which
+        // they did not ask for and are not budgeted for -- and the run passes. The reranker pair
+        // has the same shape.
+        //
+        // Substring rather than equality, and pairwise rather than against a list, because the
+        // defect is containment: two discriminators can be distinct strings and still select
+        // overlapping sets. Alternations are excluded deliberately -- `|` separates independent
+        // discriminators and no cell emits one today, which the test below this one pins.
+        var discriminators = new Dictionary<BeirProtocol, string>();
+        foreach (var (_, protocol, filter) in BeirRunBudget.PrintedFilters())
+        {
+            if (filter.Contains('|', StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            discriminators[protocol] = filter.Split('&')[0].Replace(
+                "DisplayName~", string.Empty, StringComparison.Ordinal);
+        }
+
+        var failures = new List<string>();
+        foreach (var (protocol, discriminator) in discriminators)
+        {
+            foreach (var (otherProtocol, otherDiscriminator) in discriminators)
+            {
+                if (protocol == otherProtocol)
+                {
+                    continue;
+                }
+
+                if (otherDiscriminator.Contains(discriminator, StringComparison.Ordinal))
+                {
+                    failures.Add(
+                        $"{protocol} prints \"{discriminator}\", which is contained in " +
+                        $"{otherProtocol}'s \"{otherDiscriminator}\", so {protocol}'s command also " +
+                        $"selects every {otherProtocol} case.");
+                }
+            }
+        }
+
+        Assert.True(
+            failures.Count == 0,
+            $"{failures.Count} of the budget table's discriminators select more cells than they " +
+            "name. The reader follows a skip message, gets a measurement they did not ask for " +
+            "alongside the one they did, and the run reports success for both." +
+            Environment.NewLine + "  - " +
+            string.Join(Environment.NewLine + "  - ", failures));
     }
 
     [Fact]

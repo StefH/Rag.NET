@@ -670,6 +670,95 @@ public static class BeirRunBudget
             + "more embedding work than the Real cell on the same dataset and no LLM calls at "
             + "all. The embedding cache absorbs the unit side on a re-run; the sentence side is "
             + "new text and is not in any cache."),
+
+        // Phase 6.2.1: the RealHyde and RealReranked cells measure HyDE and cross-encoder reranking
+        // over Rag.NET's own chunking rather than parity's one-chunk-per-document units. Eight
+        // entries because both protocols apply to all four BEIR datasets; only SciFact was
+        // scheduled to run. Three are now MEASURED and say so — SciFact's two and FiQA's reranker,
+        // which ran because the opt-in ungated every dataset; the other five are DERIVED or NOT RUN
+        // and say that. Each entry states which it is, because this table exists precisely so an
+        // unmeasured case cannot silently join the nightly, and a blanket claim about the whole
+        // block stops being true the first time one of them runs.
+        new(
+            "scifact",
+            BeirProtocol.RealHyde,
+            FitsTheNightly: false,
+            "MEASURED 2026-09-02, TWICE, and the two timings differ by 16x: 199.5 s on the first "
+            + "run and 12.5 s on the second, same machine, minutes apart, same binary, nothing "
+            + "changed. Both report the same 21,355 embedding-cache hits and 0 misses, and the same "
+            + "nDCG to five decimals. The candidate cause -- NOT a diagnosis -- is the OS page "
+            + "cache over the 21,355 shard files the embedding cache reads, cold on the first run "
+            + "and warm on the second; in-process chunking is redone either way, so it is not that. "
+            + "**Budget against 199.5 s, not 12.5 s.** A warm figure quoted as the cost is how a "
+            + "nightly gets scheduled against a number only a developer's second run can produce, "
+            + "and this repository has already published three false findings off a 23x page-cache "
+            + "artefact. "
+            + "This replaces a DERIVED estimate that declined to give a number at all -- it said "
+            + "only 'more than the parity cell's ~1 m 30 s, and treat the difference as unknown'. "
+            + "The cold truth is 2.2x that, which is roughly the ratio of the chunked corpus to the "
+            + "document one and nothing more surprising. Declining to name a figure is why this "
+            + "entry needed no correction, unlike the sibling RealReranked cell whose ~4 m estimate "
+            + "was wrong by 27x. Pays NO model calls: the hypothetical cache is "
+            + "keyed on model identity, prompt template, query and hypothesis index — not the "
+            + "corpus — so the entries the parity cell generated replay unchanged. Without that "
+            + "cache the cell fails through refuse-on-miss rather than skipping, exactly as the "
+            + "parity Hyde cell does."),
+        new(
+            "scifact",
+            BeirProtocol.RealReranked,
+            FitsTheNightly: false,
+            "MEASURED 2026-09-01: 6,414.5 s -- 1 h 47 m, embedding cache 20,455 hits and 0 misses, so "
+            + "pure compute. This replaces a DERIVED estimate of ~4 m that was wrong by roughly "
+            + "27x. The error was reasoning from the parity cell: the cross-encoder scores "
+            + "candidates drawn from 20,155 chunks here rather than 5,183 documents, and it is that "
+            + "candidate count, not the corpus size, that sets the cost. Pays no model calls -- the "
+            + "reranker is a local ONNX model."),
+        new(
+            "fiqa",
+            BeirProtocol.RealHyde,
+            FitsTheNightly: false,
+            "MEASURED 2026-09-02: 1,786.9 s -- 29 m 47 s, embedding cache 123,828 hits and 0 "
+            + "misses, so pure compute and no model calls. Against SciFact's cold 199.5 s that is "
+            + "9.0x the time over 6.0x the units (121,236 against 20,155), so cost is mildly "
+            + "superlinear in corpus size rather than proportional -- the retrieval side sorts a "
+            + "larger candidate set per query. Quoted COLD, deliberately: SciFact's warm re-run of "
+            + "the same cell was 16x faster than its cold one, and a warm figure quoted as the cost "
+            + "is how a nightly gets scheduled against a time only a second run can produce -- this "
+            + "cell measured 99.3 s warm, an 18x ratio matching SciFact's 16x. Needs "
+            + "the hypothetical cache, which only the generation tool writes and which is never "
+            + "committed -- FiQA's exists because its parity Hyde cell ran in Phase 3.15."),
+        new(
+            "fiqa",
+            BeirProtocol.RealReranked,
+            FitsTheNightly: false,
+            "MEASURED 2026-09-01: 22,674.7 s -- 6 h 18 m, embedding cache 121,884 hits and 0 misses. Ran "
+            + "because RAGNET_BEIR_LONG_RUNS ungates every dataset, not because it was scheduled; "
+            + "the figure is real and is pinned. 3.5x SciFact's cell, tracking the candidate count "
+            + "rather than anything else."),
+        new(
+            "arguana",
+            BeirProtocol.RealHyde,
+            FitsTheNightly: false,
+            "NOT RUN. Applicable and unscheduled, as FiQA's is."),
+        new(
+            "arguana",
+            BeirProtocol.RealReranked,
+            FitsTheNightly: false,
+            "NOT RUN. Applicable and unscheduled, as FiQA's is."),
+        new(
+            "trec-covid",
+            BeirProtocol.RealHyde,
+            FitsTheNightly: false,
+            "NOT RUN. Applicable and unscheduled. It would also be the most expensive of the four: "
+            + "this corpus is 33x SciFact's, so the chunked side is larger again."),
+        new(
+            "trec-covid",
+            BeirProtocol.RealReranked,
+            FitsTheNightly: false,
+            "NOT RUN. Applicable and unscheduled, and it inherits the parity Reranked cell's "
+            + "warning: TREC-COVID judges 50 queries against a densely judged corpus averaging "
+            + "493.5 relevant documents each, which is what makes its reranker cell the suite's "
+            + "most expensive."),
 ];
 
     /// <summary>
@@ -690,7 +779,7 @@ public static class BeirRunBudget
     public static bool IsGatedOff(string datasetName, BeirProtocol protocol, out string reason)
     {
         var cost = Find(datasetName, protocol);
-        if (cost.FitsTheNightly || IsOptedIn())
+        if (cost.FitsTheNightly || IsOptedIn(datasetName))
         {
             reason = string.Empty;
             return false;
@@ -740,25 +829,134 @@ public static class BeirRunBudget
         return false;
     }
 
-    /// <summary>Reports whether the long runs were explicitly asked for.</summary>
-    /// <returns><see langword="true"/> when <see cref="OptInVariable"/> asks for them.</returns>
+    /// <summary>Reports whether the long runs were explicitly asked for, for one dataset.</summary>
+    /// <param name="datasetName">The dataset the caller is about to measure.</param>
+    /// <returns><see langword="true"/> when <see cref="OptInVariable"/> asks for that dataset.</returns>
     /// <remarks>
-    /// Presence is not enough on its own: <c>RAGNET_BEIR_LONG_RUNS=0</c> in a workflow reads to
-    /// every human as "off", and a gate that turned nine hours of measurement on for it would be a
-    /// trap rather than a switch. "0" and "false" are therefore off, and anything else present is
-    /// on. Private again since Phase 3.15 recorded the ablation cells' measured costs: while those
+    /// Takes a dataset because the variable is read per case and the answer differs per case; see
+    /// <see cref="IsOptedInFor"/> for what the value may say and why an unrecognised one throws.
+    /// Private again since Phase 3.15 recorded the ablation cells' measured costs: while those
     /// entries did not exist, <see cref="BeirAblationTests"/> gated on this directly so an
     /// unmeasured cell could not default into the nightly through <see cref="IsGatedOff"/>'s table
     /// lookup throwing — every cell now gates through the table like every other case.
     /// </remarks>
-    private static bool IsOptedIn()
-    {
-        var value = Environment.GetEnvironmentVariable(OptInVariable);
+    private static bool IsOptedIn(string datasetName) =>
+        IsOptedInFor(Environment.GetEnvironmentVariable(OptInVariable), datasetName);
 
-        return !string.IsNullOrWhiteSpace(value)
-            && !string.Equals(value, "0", StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(value, "false", StringComparison.OrdinalIgnoreCase);
+    /// <summary>Reads one opt-in value, with no reference to the environment.</summary>
+    /// <param name="value">The raw value of <see cref="OptInVariable"/>, or <see langword="null"/>.</param>
+    /// <param name="datasetName">The dataset the caller is about to measure.</param>
+    /// <returns><see langword="true"/> when that value opts that dataset in.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// The value is neither an on/off word nor a list of dataset names.
+    /// </exception>
+    /// <remarks>
+    /// <para>
+    /// Four readings, in order. Absent, blank, <c>0</c> and <c>false</c> are <b>off</b>:
+    /// <c>RAGNET_BEIR_LONG_RUNS=0</c> in a workflow reads to every human as "off", and a gate that
+    /// turned nine hours of measurement on for it would be a trap rather than a switch. <c>1</c> and
+    /// <c>true</c> are <b>on for every dataset</b>, which is what all thirteen documented
+    /// invocations in this repository say and what they must keep meaning. A comma-separated list of
+    /// dataset names is <b>on for exactly those</b>. Anything else <b>throws</b>.
+    /// </para>
+    /// <para>
+    /// <b>Why the list exists.</b> xunit filters on classes and methods, never on theory arguments,
+    /// so measuring one cell means running its theory across every dataset — and the opt-in used to
+    /// ungate all of them together. The datasets are not interchangeable: TREC-COVID's Real leg has
+    /// never been embedded and its corpus is 33x SciFact's, so a run aimed at SciFact would chunk
+    /// and embed that corpus from cold on its way past. That is not hypothetical. FiQA's
+    /// <c>RealReranked</c> cell ran 6 h 18 m on 2026-09-01 because, in its own commit message, the
+    /// variable "ungates every dataset rather than because it was scheduled".
+    /// </para>
+    /// <para>
+    /// <b>Why an unknown name throws rather than widening.</b> The old rule was "anything else
+    /// present is on", so <c>scifct</c> would have bought every dataset — the most expensive
+    /// possible reading of a typo, taken silently. A run nobody asked for is exactly what this gate
+    /// exists to prevent, and a mistyped name is the likeliest way to ask for one. A partly
+    /// recognised list throws for the same reason at one remove: it would measure the half it
+    /// understood and pass, and a green summary does not show the half it dropped.
+    /// </para>
+    /// </remarks>
+    internal static bool IsOptedInFor(string? value, string datasetName)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        var trimmed = value.Trim();
+        if (string.Equals(trimmed, "0", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(trimmed, "false", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (string.Equals(trimmed, "1", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(trimmed, "true", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var selected = false;
+        foreach (var part in trimmed.Split(','))
+        {
+            var name = part.Trim();
+            if (!IsKnownDataset(name))
+            {
+                throw new InvalidOperationException(
+                    $"{OptInVariable} is set to '{trimmed}', and '{name}' is not a dataset this "
+                    + "suite knows. Set it to 1 to opt every dataset in, or to a comma-separated "
+                    + $"list of {KnownDatasets()} to opt in only those. It is not read as a "
+                    + "yes-word: an unrecognised value used to mean every dataset, which turns a "
+                    + "typo into the most expensive run available.");
+            }
+
+            if (string.Equals(name, datasetName, StringComparison.OrdinalIgnoreCase))
+            {
+                selected = true;
+            }
+        }
+
+        return selected;
     }
+
+    /// <summary>Reports whether one name is a dataset this suite carries a descriptor for.</summary>
+    private static bool IsKnownDataset(string name)
+    {
+        foreach (var descriptor in BeirDatasetDescriptor.All)
+        {
+            if (string.Equals(descriptor.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Every dataset name, for the message an unknown one fails with.</summary>
+    private static string KnownDatasets()
+    {
+        var names = new List<string>();
+        foreach (var descriptor in BeirDatasetDescriptor.All)
+        {
+            names.Add(descriptor.Name);
+        }
+
+        return string.Join(", ", names);
+    }
+
+    /// <summary>The skip message one gated pair would carry, without consulting the environment.</summary>
+    /// <param name="datasetName">The BEIR dataset name, as it appears in the theory data.</param>
+    /// <param name="protocol">Which protocol the case measures under.</param>
+    /// <returns>The message <see cref="IsGatedOff"/> would hand back for that pair.</returns>
+    /// <remarks>
+    /// A seam for <see cref="BeirRunBudgetTests"/>, for the reason that test records: asking
+    /// <see cref="IsGatedOff"/> reads <see cref="OptInVariable"/>, so on the one machine most likely
+    /// to be editing the table the message under test is the empty string.
+    /// </remarks>
+    internal static string ExplainFor(string datasetName, BeirProtocol protocol) =>
+        Explain(Find(datasetName, protocol));
 
     /// <summary>Finds the recorded cost for one dataset under one protocol.</summary>
     /// <exception cref="InvalidOperationException">Nothing has been measured for that pair.</exception>
@@ -801,7 +999,7 @@ public static class BeirRunBudget
         would pay. The nightly keeps SciFact and ArguAna PARITY (~15-20 min cold, all four cases),
         which is the published number this milestone exists to protect.
         To run this case:
-          {OptInVariable}=1 dotnet test tests/Rag.NET.Benchmarks.Quality.IntegrationTests --no-build --filter "{Filter(cost)}"
+          {OptInVariable}={cost.Dataset} dotnet test tests/Rag.NET.Benchmarks.Quality.IntegrationTests --no-build --filter "{Filter(cost)}"
         """;
 
     /// <summary>Names the protocol the way the run's own output does.</summary>
@@ -839,6 +1037,12 @@ public static class BeirRunBudget
         BeirProtocol.GraphRagDepthControl =>
             "GRAPHRAG DEPTH CONTROL (the Real leg's article chunks alone, dense-retrieved at the " +
             "graph path's candidate depth, max-pooled to documents)",
+        BeirProtocol.RealHyde =>
+            "+HYDE OVER REAL CHUNKING ablation cell (the Real protocol's chunked corpus, searched " +
+            "with the cached hypotheticals' mean vector, against the Real dense figure)",
+        BeirProtocol.RealReranked =>
+            "+RERANKER OVER REAL CHUNKING ablation cell (the Real protocol's chunked corpus, dense " +
+            "top-k rescored by the cross-encoder, against the Real dense figure)",
         _ => throw new ArgumentOutOfRangeException(nameof(protocol), protocol, null),
     };
 
@@ -918,8 +1122,14 @@ public static class BeirRunBudget
             BeirProtocol.Parity => nameof(BeirParityTests),
             BeirProtocol.Real => nameof(BeirRealChunkingTests),
             BeirProtocol.HybridBm25 => "UnderBm25HybridRrf",
-            BeirProtocol.Hyde => "UnderCachedHyde",
-            BeirProtocol.Reranked => "UnderCrossEncoderRerank",
+            // Both parity discriminators carry the trailing underscore of their method name, and
+            // it is load-bearing rather than cosmetic. RealHyde's method is
+            // NdcgAt10_UnderCachedHydeOverRealChunking, so a bare "UnderCachedHyde" is a prefix of
+            // it and the parity cell's printed command would select the Real cell too -- handing a
+            // reader an expensive measurement they did not ask for, under an exit code that says
+            // everything ran as priced. The underscore is what makes the parity name terminal.
+            BeirProtocol.Hyde => "UnderCachedHyde_",
+            BeirProtocol.Reranked => "UnderCrossEncoderRerank_",
             BeirProtocol.SemanticChunking => "UnderSemanticChunking",
             BeirProtocol.Comparison => nameof(BeirComparisonControlTests),
             BeirProtocol.SemanticKernel => nameof(BeirSemanticKernelDefaultsTests),
@@ -927,6 +1137,8 @@ public static class BeirRunBudget
             BeirProtocol.LlamaIndex => "ThroughLlamaIndex",
             BeirProtocol.Haystack => "ThroughHaystack",
             BeirProtocol.GraphRagDepthControl => "DenseAtTheGraphPathsDepth",
+            BeirProtocol.RealHyde => "UnderCachedHydeOverRealChunking",
+            BeirProtocol.RealReranked => "UnderCrossEncoderRerankOverRealChunking",
             _ => throw new ArgumentOutOfRangeException(nameof(cost), cost.Protocol, null),
         };
 
