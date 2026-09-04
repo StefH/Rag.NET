@@ -671,6 +671,90 @@ public static class BeirRunBudget
             + "all. The embedding cache absorbs the unit side on a re-run; the sentence side is "
             + "new text and is not in any cache."),
 
+        // Phase 6.2.1: the RealLateChunking cells. Four entries because the protocol applies to all
+        // four BEIR datasets; SciFact, FiQA and ArguAna are scheduled under the three-corpora scope
+        // decision of 2026-09-02. Every figure below is DERIVED until a run replaces it.
+        new(
+            "scifact",
+            BeirProtocol.RealLateChunking,
+            FitsTheNightly: false,
+            "MEASURED 2026-09-03: 430.9 s cold, 632.6 s on the confirmation run -- and the two are "
+            + "NOT a warm/cold pair. **This is the one cell in the table where a re-run is not "
+            + "cheaper**, because EmbeddingCache is keyed on model identity and text while a "
+            + "late-chunked vector is not a function of the chunk's text alone: the same text in a "
+            + "different document embeds differently, which is the property under test. Token-level "
+            + "embedding of all 5,183 documents is paid in full every run. The other cells show "
+            + "1.72-18x warm speedups; this one shows none, and the second run being SLOWER is "
+            + "ordinary machine noise rather than a signal. The DERIVED text this replaces declined "
+            + "to give a number at all, on the grounds that four cost derivations in this phase had "
+            + "missed by scaling from cells of a different shape; that was the right call, and it "
+            + "is why this entry needed no correction."),
+        new(
+            "fiqa",
+            BeirProtocol.RealLateChunking,
+            FitsTheNightly: false,
+            "MEASURED 2026-09-03: 2,295.7 s -- 38 m 16 s, the most expensive late-chunking cell and "
+            + "5.3x SciFact's over 11.1x the documents. Sublinear in document count because "
+            + "FiQA's documents are shorter: 73,014 units from 57,638 documents against SciFact's "
+            + "9,507 from 5,183. No cache benefit on a re-run; see SciFact's entry."),
+        new(
+            "arguana",
+            BeirProtocol.RealLateChunking,
+            FitsTheNightly: false,
+            "MEASURED 2026-09-03: 494.0 s. 1.15x SciFact's 430.9 s over 8,674 documents against "
+            + "5,183 -- close to flat in document count, because the cost is token-level embedding "
+            + "per document rather than per judged query. That is the opposite of the reranker "
+            + "cells, where ArguAna's 1,406 judged queries made it 2.8x SciFact. **Cost shape "
+            + "differs per technique, which is the fifth distinct way a derivation could have gone "
+            + "wrong in this phase.** No cache benefit on a re-run; see SciFact's entry."),
+        new(
+            "trec-covid",
+            BeirProtocol.RealLateChunking,
+            FitsTheNightly: false,
+            "NOT RUN and not scheduled. Its Real leg has never been embedded, and this cell would "
+            + "additionally pay uncacheable token-level embedding over a corpus 33x SciFact's."),
+        // Phase 6.2.1: the RealHybridBm25 cells measure dense+BM25 RRF fusion over Rag.NET's own
+        // chunking. Four entries because the protocol applies to all four BEIR datasets; SciFact,
+        // FiQA and ArguAna are scheduled under the three-corpora scope decision of 2026-09-02.
+        // Every figure below is DERIVED until a run replaces it, and each says which it is.
+        new(
+            "scifact",
+            BeirProtocol.RealHybridBm25,
+            FitsTheNightly: false,
+            "MEASURED 2026-09-03: 172.5 s, no model calls -- InMemoryBm25Index is in process and the "
+            + "chunk embeddings were already cached by the Real and RealReranked cells. **The cheapest "
+            + "Real-protocol technique cell measured so far**, below this dataset's HyDE cell at 199.5 s "
+            + "and far below its reranker at 1 h 47 m. The DERIVED text this replaces declined to give a "
+            + "multiple and said to treat it as unknown; that was the right call and is why this entry "
+            + "needed no correction, unlike three others in this phase. REPRODUCED: a second run agreed to five decimals at 11.5 s warm, a 15x ratio."),
+        new(
+            "fiqa",
+            BeirProtocol.RealHybridBm25,
+            FitsTheNightly: false,
+            "MEASURED 2026-09-03: 1,164.4 s -- 19 m 24 s, no model calls. **Below its own parity "
+            + "sibling's ~58 m, which is the opposite of what the DERIVED text expected**: that "
+            + "estimate reasoned the chunked corpus would cost more because it indexes 121,236 chunks "
+            + "against 57,600 documents. It costs less. BM25 indexing is term-count work, and 121,236 "
+            + "short chunks hold roughly the same terms as 57,600 long documents while each posting "
+            + "list is shorter -- so the corpus grew in rows and shrank in per-row work. **Fourth cost "
+            + "derivation in this phase to miss, and the second to miss high.** REPRODUCED: a second run agreed to five decimals at 63.9 s warm, an 18x ratio."),
+        new(
+            "arguana",
+            BeirProtocol.RealHybridBm25,
+            FitsTheNightly: false,
+            "MEASURED 2026-09-03: 308.6 s, no model calls. 1.8x SciFact's 172.5 s on 19% more units, "
+            + "which is the query-count effect this entry predicted -- ArguAna judges all 1,406 of its "
+            + "queries against SciFact's 300. **The prediction held here where three other cost "
+            + "derivations in this phase missed**, and the difference is that it reasoned from a "
+            + "mechanism (queries drive cost) rather than scaling a number from another corpus. REPRODUCED: a second run agreed to five decimals at 41.7 s warm, a 7.4x ratio -- the three hybrid cells span 7.4-18x, so the warm/cold spread is now 1.72-18x across seven confirmed cells and still not a constant."),
+        new(
+            "trec-covid",
+            BeirProtocol.RealHybridBm25,
+            FitsTheNightly: false,
+            "NOT RUN, and not scheduled. Its Real leg has never been embedded and this corpus is 33x "
+            + "SciFact's, so the cell would pay a cold chunk-and-embed of the whole corpus before "
+            + "indexing anything. The parity HybridBm25 entry says the same of itself and for the "
+            + "same reason."),
         // Phase 6.2.1: the RealHyde and RealReranked cells measure HyDE and cross-encoder reranking
         // over Rag.NET's own chunking rather than parity's one-chunk-per-document units. Eight
         // entries because both protocols apply to all four BEIR datasets; only SciFact was
@@ -739,12 +823,27 @@ public static class BeirRunBudget
             "arguana",
             BeirProtocol.RealHyde,
             FitsTheNightly: false,
-            "NOT RUN. Applicable and unscheduled, as FiQA's is."),
+            "MEASURED 2026-09-02: 565.0 s cold and 48.6 s warm, embedding cache 29,627 hits and 0 misses, so pure "
+            + "compute and no model calls. Between SciFact's 199.5 s and FiQA's 1,786.9 s, and NOT "
+            + "in corpus-size order: ArguAna's 24,003 units are barely above SciFact's 20,155, but "
+            + "it judges all 1,406 of its queries against SciFact's 300. Query count drives these "
+            + "cells as much as corpus size does, which is worth knowing before pricing the "
+            + "remaining ones from unit counts alone."),
         new(
             "arguana",
             BeirProtocol.RealReranked,
             FitsTheNightly: false,
-            "NOT RUN. Applicable and unscheduled, as FiQA's is."),
+            "MEASURED 2026-09-02: 22,976.2 s cold -- 6 h 23 m -- and 13,385.3 s warm (3 h 43 m), a 1.72x "
+            + "ratio against the 11.6-18x these cells show when they are retrieval-only. The warm "
+            + "figure is not derivable from another cell: the ratio tracks each cell's mix of "
+            + "page-cacheable reads against compute, and a cross-encoder does not cache. Embedding cache 25,409 hits and 0 misses, "
+            + "so pure compute and no model calls. This replaces a DERIVED 8-14 h, which OVERSHOT: "
+            + "it took the two measured reranker rates as a range -- 21.4 s/query on SciFact and "
+            + "35.0 s/query on FiQA -- and this corpus ran at 16.3 s/query, below both. Two "
+            + "derivations of this cell have now been wrong in opposite directions, the earlier one "
+            + "calling it 'over an hour' by reasoning from its 28 m parity sibling. **Per-query rate "
+            + "is not transferable between corpora any more than corpus size is**; it is the third "
+            + "estimate in this phase to miss, and the first to miss high."),
         new(
             "trec-covid",
             BeirProtocol.RealHyde,
@@ -1043,6 +1142,14 @@ public static class BeirRunBudget
         BeirProtocol.RealReranked =>
             "+RERANKER OVER REAL CHUNKING ablation cell (the Real protocol's chunked corpus, dense " +
             "top-k rescored by the cross-encoder, against the Real dense figure)",
+        BeirProtocol.RealHybridBm25 =>
+            "+BM25 HYBRID OVER REAL CHUNKING ablation cell (the Real protocol's chunked corpus, "
+            + "dense fused with InMemoryBm25Index via RRF over the same chunks, against the Real "
+            + "dense figure)",
+        BeirProtocol.RealLateChunking =>
+            "LATE CHUNKING over the Real protocol's boundaries (document embedded at token level, "
+            + "each chunk pooled from token vectors that saw the whole document, against the Real "
+            + "dense figure)",
         _ => throw new ArgumentOutOfRangeException(nameof(protocol), protocol, null),
     };
 
@@ -1121,7 +1228,7 @@ public static class BeirRunBudget
         {
             BeirProtocol.Parity => nameof(BeirParityTests),
             BeirProtocol.Real => nameof(BeirRealChunkingTests),
-            BeirProtocol.HybridBm25 => "UnderBm25HybridRrf",
+            BeirProtocol.HybridBm25 => "UnderBm25HybridRrf_",
             // Both parity discriminators carry the trailing underscore of their method name, and
             // it is load-bearing rather than cosmetic. RealHyde's method is
             // NdcgAt10_UnderCachedHydeOverRealChunking, so a bare "UnderCachedHyde" is a prefix of
@@ -1139,6 +1246,8 @@ public static class BeirRunBudget
             BeirProtocol.GraphRagDepthControl => "DenseAtTheGraphPathsDepth",
             BeirProtocol.RealHyde => "UnderCachedHydeOverRealChunking",
             BeirProtocol.RealReranked => "UnderCrossEncoderRerankOverRealChunking",
+            BeirProtocol.RealHybridBm25 => "UnderBm25HybridRrfOverRealChunking",
+            BeirProtocol.RealLateChunking => "UnderLateChunking",
             _ => throw new ArgumentOutOfRangeException(nameof(cost), cost.Protocol, null),
         };
 

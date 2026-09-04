@@ -109,6 +109,79 @@ public static class BeirReproduction
             "CPU ONNX Runtime; re-measured 2026-07-31."),
         new(
             "scifact",
+            BeirProtocol.RealLateChunking,
+            [0.65510],
+            "MEASURED 2026-09-03, Windows 11, .NET 10, CPU ONNX Runtime: nDCG@10 0.65510 over the 300 judged queries; 9,507 units over 5,175 of 5,183 documents, max 9 per document. **Against its control, the Real cell's 0.67742, this is −0.02232 — late chunking makes SciFact worse, and it is the first technique measured here to do so.** HyDE, reranking and hybrid BM25 all help this corpus (+0.03647, +0.01266, +0.01880). **This cell varies BOTH the boundaries and the embedding, which was mis-stated when it was written**: late chunking windows at its own 256 tokens rather than reusing RecursiveChunkingStrategy's, so it produced 9,507 units against the Real cell's 20,155 over the same corpus. The comparison is still the end-to-end one a user faces; no part of it isolates the embedding step, so this figure cannot be read as \"whole-document context is worth −0.022\". **8 documents excluded**, carrying control characters BERT's own reference implementation deletes; one is relevant to a judged query, bounding the distortion at 0.00333 against a ±0.005 band. **The first retrieval-quality figure late chunking has ever had** — the allowlist entry claimed Phase 3.7 measured it, and 3.7 measured the parity dense anchor instead. SUPERSEDED TEXT: NEVER RUN -- Phase 6.2.1 wired this cell and has not measured it. **Late chunking has never had a " +
+            "never had a retrieval-quality figure at all**: the allowlist entry that owed this cell " +
+            "said it was 'measured once in Phase 3.7 and never pinned', and 3.7 built the harness " +
+            "and measured SciFact's parity dense figure instead. Phase 3.13 verified late chunking " +
+            "functionally after fixing a normalisation defect, which is a different claim. " +
+            "**Its control is the Real cell's 0.67742**, and the comparison is not the same shape " +
+            "as the other Real cells': they hold units fixed and vary the ranking row, this varies " +
+            "how the units are embedded. It answers 'does late chunking beat the default chunking " +
+            "end to end'."),
+        new(
+            "fiqa",
+            BeirProtocol.RealLateChunking,
+            [0.38369],
+            "MEASURED 2026-09-03, Windows 11, .NET 10, CPU ONNX Runtime: nDCG@10 0.38369 over the 648 judged queries; 73,014 units over 57,589 of 57,638 documents; 2,295.7 s. **Against its control, the Real cell's 0.35569, this is +0.02800 — the largest positive effect any technique has had on FiQA, and it RETIRES this phase's claim that FiQA is the corpus nothing helps.** That claim was written into ROADMAP.md and STATE.md with the hybrid result, when HyDE (−0.00886), reranking (−0.00951) and hybrid (−0.04185) had all harmed it. It was true of the three techniques measured then and is false as a statement about the corpus. **Late chunking is anti-correlated with the other three across all three corpora** — the only one negative on SciFact and positive on FiQA and ArguAna. Same caveat as the other two cells: this varies boundaries AND embedding (73,014 units against the Real cell's 121,236), so fewer larger units could carry part or all of it. SUPERSEDED TEXT: NEVER RUN -- wired by Phase 6.2.1. **Its control is the Real cell's 0.35569.** FiQA is " +
+            "the corpus every technique has harmed under the Real protocol so far."),
+        new(
+            "arguana",
+            BeirProtocol.RealLateChunking,
+            [0.48988],
+            "MEASURED 2026-09-03, Windows 11, .NET 10, CPU ONNX Runtime: nDCG@10 0.48988 over all 1,406 judged queries; 11,137 units over 8,673 of 8,674 documents. **Against its control, the Real cell's 0.47559, this is +0.01429 — and it CONFIRMS the prediction written into this entry before the run.** The chain: HyDE and reranking harm ArguAna most (−0.02053, −0.06938); hybrid BM25 refuted the fragmentation explanation by scoring +0.03978 over the identical fragments; what survived was that the harm is specific to matching a document-shaped or semantically-rescored query against fragments; late chunking attacks exactly that by giving each fragment a vector computed with whole-document context. It recovers, as predicted. **And the sign is opposite to SciFact's −0.02232** — late chunking is the only technique measured here that helps where HyDE and reranking hurt and hurts where they help, which is the same where-relevance-lives axis Phase 3.12 recorded for chunking itself: whole-document context helps when relevance is whole-argument and blurs it when relevance is a claim supported by two sentences. **CAVEAT, and it is not small: this cell varies boundaries AND embedding** (11,137 units against the Real cell's 24,003), so fewer larger units could explain this on their own for a whole-argument corpus. Separating them needs a control with late chunking's boundaries and ordinary embeddings, which no cell runs. SUPERSEDED TEXT: NEVER RUN -- wired by Phase 6.2.1. **Its control is the Real cell's " +
+            "the cell that tests what survived the hybrid result: HyDE and reranking harm ArguAna " +
+            "while BM25 over the same fragments helps it, so the remaining explanation is that the " +
+            "harm is specific to matching a document-shaped or semantically-rescored query against " +
+            "fragments. **Late chunking attacks that directly** -- it gives each fragment a vector " +
+            "computed with whole-document context, which is the missing context that explanation " +
+            "blames. If the explanation holds, this cell should recover part of HyDE's and " +
+            "reranking's loss here."),
+        new(
+            "trec-covid",
+            BeirProtocol.RealLateChunking,
+            [],
+            "NOT RUN and not scheduled -- its Real leg has never been embedded."),
+        new(
+            "scifact",
+            BeirProtocol.RealHybridBm25,
+            [0.69622],
+            "MEASURED 2026-09-03, Windows 11, .NET 10, CPU ONNX Runtime: nDCG@10 0.69622, Recall@10 0.82200, MRR@10 0.66393 over the 300 judged queries; 20,155 units over 5,183 documents; 172.5 s. BM25 was non-empty for 300 of 300 queries and the fused ranking diverged from dense on all 300. **Against its control, the Real cell's 0.67742, this is +0.01880.** Beside the parity pair -- 0.69913 against a 0.64593 dense anchor, +0.05320 -- the gain shrinks to about a third on the corpus this library actually produces, the same direction HyDE and reranking showed on this dataset. SUPERSEDED TEXT: NEVER RUN -- Phase 6.2.1 wired this cell and has not measured it; empty rather than a " +
+            "guessed figure, so AssertReproduces reports instead of asserting until a run fills it. " +
+            "Dense fused with InMemoryBm25Index by RRF over the Real protocol's 20,155 chunks. " +
+            "**Its control is the Real cell's 0.67742 on this dataset**, not the parity hybrid " +
+            "cell's 0.69913 -- units are held fixed and only the ranking row varies. " +
+            "**What makes this cell different from the other two Real technique cells:** HyDE and " +
+            "reranking keep the same ranker and change what it sees; BM25 normalises against " +
+            "document length, so chunking changes the ranker itself. A parity hybrid figure is not " +
+            "a weaker version of this number, it is a number about a different lexical model."),
+        new(
+            "fiqa",
+            BeirProtocol.RealHybridBm25,
+            [0.31384],
+            "MEASURED 2026-09-03, Windows 11, .NET 10, CPU ONNX Runtime: nDCG@10 0.31384, Recall@10 0.39817, MRR@10 0.38012 over the 648 judged queries; 121,236 units over 57,600 documents; 1,164.4 s. BM25 non-empty for 648 of 648 queries, fused ranking diverged from dense on all of them. **Against its control, the Real cell's 0.35569, this is −0.04185 -- the largest harm hybrid does on any of the three corpora.** Its parity sibling is already negative at −0.01421 (0.35665 against 0.37086), so the sign held and the magnitude roughly tripled: mildly negative at parity, decidedly negative on the corpus this library produces. **All three techniques now harm FiQA under the Real protocol** -- HyDE −0.00886, reranking −0.00951, hybrid −0.04185 -- which makes it the only corpus of the three where nothing measured has helped. SUPERSEDED TEXT: NEVER RUN -- wired by Phase 6.2.1, unmeasured, empty for the same reason as SciFact's. " +
+            "**Its control is the Real cell's 0.35569.** Worth noting before it runs: FiQA is the " +
+            "corpus where both measured techniques went negative on real chunks while being " +
+            "positive or neutral at parity, so a parity hybrid figure predicts nothing here."),
+        new(
+            "arguana",
+            BeirProtocol.RealHybridBm25,
+            [0.51537],
+            "MEASURED 2026-09-03, Windows 11, .NET 10, CPU ONNX Runtime: nDCG@10 0.51537, Recall@10 0.80299, MRR@10 0.42507 over all 1,406 judged queries; 24,003 units over 8,674 documents; 308.6 s. BM25 non-empty for 1,406 of 1,406 queries, fused ranking diverged from dense on all of them. **Against its control, the Real cell's 0.47559, this is +0.03978 -- and it REFUTES the explanation this phase had been carrying for ArguAna.** HyDE cost this corpus 0.02053 and reranking 0.06938, both attributed to its relevance being whole-argument against whole-argument, making 512-character fragments the wrong unit. A term-frequency model over those same fragments does not suffer: it produces the best Real-protocol figure ArguAna has, above its Real dense control AND above its parity dense 0.50432. **Fragmentation alone is not what hurt the other two.** Whatever does is specific to matching a document-shaped or semantically-rescored query against fragments, not to the fragments themselves. SUPERSEDED TEXT: NEVER RUN -- wired by Phase 6.2.1, unmeasured. **Its control is the Real cell's " +
+            "0.47559.** ArguAna is the corpus both measured techniques harmed most under the Real " +
+            "protocol -- HyDE -0.02053, reranking -0.06938 -- on the standing explanation that its " +
+            "relevance is whole-argument against whole-argument and 512-character fragments are the " +
+            "wrong unit for it. **BM25 is the test of that explanation**: if fragments are the " +
+            "problem, a term-frequency model over the same fragments should suffer too."),
+        new(
+            "trec-covid",
+            BeirProtocol.RealHybridBm25,
+            [],
+            "NOT RUN and not scheduled -- its Real leg has never been embedded. Empty rather than a " +
+            "guessed figure."),
+        new(
+            "scifact",
             BeirProtocol.Real,
             [0.67742],
             "20,155 chunks over 5,183 of 5,183 documents, max 25 from one, pooled on all 1,109 " +
@@ -329,16 +402,84 @@ public static class BeirReproduction
         new(
             "arguana",
             BeirProtocol.RealHyde,
-            [],
-            "NOT RUN. Applicable and unscheduled; Phase 6.2.1 scheduled SciFact alone for the " +
+            [0.45506],
+            "MEASURED 2026-09-02, Windows 11, .NET 10, CPU ONNX Runtime: nDCG@10 0.45506, Recall@10 "
+            + "0.73898, MRR@10 0.36741 over all 1,406 judged queries; 24,003 units over 8,674 of "
+            + "8,674 documents; embedding cache 29,627 hits and 0 misses, so no model calls. HyDE "
+            + "reordered 1,406 of 1,406 queries. "
+            + "**Against its control, the Real cell's 0.47559, this is −0.02053 — the largest HyDE "
+            + "effect of the three datasets, and it is a harm.** "
+            + "**This cell falsified a prediction made before it ran, and that is why it matters.** "
+            + "ArguAna's parity Hyde cell is −0.00139 against a 0.50432 anchor — the nearest to zero "
+            + "of the three, and it was predicted to stay near zero on the chunked corpus if sign "
+            + "were the corpus's property. The sign did hold. The MAGNITUDE moved by ~15x: "
+            + "−0.00139 to −0.02053. Across three datasets the real/parity magnitude ratio is 0.67x "
+            + "(SciFact), 1.63x (FiQA) and 14.8x (ArguAna) -- it shrinks, it grows, and it explodes. "
+            + "**There is no usable relationship between a parity ablation figure and the real one "
+            + "beyond the sign**, and ArguAna is the proof: its parity cell reports HyDE as neutral "
+            + "on this corpus, and on the corpus this library actually produces it is the worst "
+            + "affected of the three. "
+            + "As REASONING and not measurement, the candidate mechanism: HyDE searches with a "
+            + "hypothetical *document* vector, and ArguAna's relevance is whole-argument against "
+            + "whole-argument. Chunking already costs this corpus −0.02873 on its own (0.50432 "
+            + "parity to 0.47559 real, the largest chunking penalty of the three), so a "
+            + "document-shaped query vector matched against 512-character fragments compounds a "
+            + "mismatch the other two corpora do not have. Untested -- it predicts that late "
+            + "chunking should recover some of this, which is a cell this phase has not run. "
+            + "REPRODUCED: a second run returned all three metrics identical to five decimals, this "
+            + "time asserting against the pin rather than reporting. "
+            + "Cost 565.0 s cold and 48.6 s warm, an 11.6x ratio against SciFact's 16x and FiQA's "
+            + "18x -- the divergence is consistent in kind across all three cells and not a "
+            + "constant, so budget against the cold figure and do not derive one from another. "
+            + "SUPERSEDED TEXT: NOT RUN. Applicable and unscheduled; Phase 6.2.1 scheduled SciFact alone for the " +
             "Real-protocol technique cells. ArguAna's hypothetical cache does exist -- its parity " +
             "Hyde cell ran in Phase 3.15 -- so unlike TREC-COVID's this one could run today. Empty " +
             "rather than a guessed figure, so AssertReproduces reports instead of asserting."),
         new(
             "arguana",
             BeirProtocol.RealReranked,
-            [],
-            "NOT RUN. Applicable and unscheduled. ArguAna is the expensive reranker corpus because " +
+            [0.40621],
+            "MEASURED 2026-09-02, Windows 11, .NET 10, CPU ONNX Runtime: nDCG@10 0.40621, Recall@10 "
+            + "0.65505, MRR@10 0.32921 over all 1,406 judged queries; 24,003 units over 8,674 of "
+            + "8,674 documents; embedding cache 25,409 hits and 0 misses, so no model calls -- the "
+            + "reranker is a local ONNX model. Reranked order differed from dense on 1,406 of 1,406 "
+            + "queries. "
+            + "**Against its control, the Real cell's 0.47559, this is −0.06938 — the largest "
+            + "technique effect Phase 6.2.1 has measured, in either direction, and it is a harm.** "
+            + "**This cell completes reranking on three corpora and falsifies the phase's own "
+            + "'parity predicts the sign' generalisation.** With all six (technique, corpus) pairs "
+            + "measured under both protocols, five preserve their sign and ONE DOES NOT: FiQA "
+            + "reranking is +0.01372 at parity (0.38458 against 0.37086) and −0.00951 real (0.34618 "
+            + "against 0.35569). A parity ablation figure does not reliably predict even the "
+            + "direction of the real effect. The generalisation was written into ROADMAP.md and "
+            + "STATE.md twice on 2026-09-02, on HyDE's three cells where it did hold, and this cell "
+            + "retired it the same day. "
+            + "Reranking across the three: SciFact +0.03849 parity / +0.01266 real; FiQA +0.01372 / "
+            + "−0.00951; ArguAna −0.02515 / −0.06938. **Reranking helps one corpus and harms two on "
+            + "the corpus this library actually produces**, the same shape HyDE showed, and ArguAna "
+            + "is worst hit by both techniques. "
+            + "As REASONING and not measurement, the candidate mechanism is the one this cell's "
+            + "SUPERSEDED text predicted before the run: a cross-encoder scores a query against a "
+            + "PASSAGE, and ArguAna's relevance is whole-argument against whole-argument, so "
+            + "512-character fragments are the wrong unit for it twice over -- once in the "
+            + "retrieval and again in the rescoring. It is the same corpus and the same explanation "
+            + "as its HyDE cell's −0.02053, at 3.4x the size. "
+            + "REPRODUCED: a second run returned all three metrics identical to five decimals, this "
+            + "time asserting against the pin rather than reporting. **Its cost is the datum that "
+            + "corrects this phase's warm/cold model for the second time in a day.** 13,385.3 s "
+            + "(3 h 43 m) warm against 22,976.2 s cold is **1.72x** -- not the 11.6-18x the three "
+            + "HyDE cells showed, and not the 1.0x predicted for it hours earlier on the reasoning "
+            + "that a cross-encoder has nothing to cache. Both readings were wrong in the same way: "
+            + "they treated the ratio as a property of the SUITE. It is a property of each cell's "
+            + "**mix** -- the share of its cost that is I/O-bound page-cacheable reads against the "
+            + "share that is compute. HyDE cells are retrieval-only, so nearly all of their cost "
+            + "caches away. This cell's dense-retrieval side caches and its cross-encoder inference "
+            + "does not, and 1.72x is where that lands. Predict a cell's warm cost from its "
+            + "composition, or do not predict it. "
+            + "Cost 22,976.2 s (6 h 23 m) cold, against a DERIVED 8-14 h -- the derivation overshot "
+            + "because it took 21.4 s/query (SciFact) and 35.0 s/query (FiQA) as a range and this "
+            + "corpus ran at 16.3 s/query, below both. "
+            + "SUPERSEDED TEXT: NOT RUN. Applicable and unscheduled. ArguAna is the expensive reranker corpus because " +
             "it judges every query -- 14,060 cross-encoder pairs at parity against FiQA's 6,480 -- " +
             "and the Real protocol's chunking raises the candidate count that sets that cost. " +
             "Empty rather than a guessed figure."),

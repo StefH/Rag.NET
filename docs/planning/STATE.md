@@ -1,7 +1,8 @@
 # Session State
 
-**Last updated:** 2026-09-02 (FiQA RealHyde measured at 0.34683 and pinned, which corrected the
-SciFact reading; before it #433, #439 and #441 merged and verified on `main` by content)
+**Last updated:** 2026-09-03, session close (four of five sweep techniques measured on three corpora
+each — HyDE, reranking, hybrid BM25, late chunking; SPLADE blocked on a model nobody has provisioned.
+Twelve PRs merged across two days, each verified on `main` by content)
 **Written by:** `project-orchestration` — first `STATE.md` this project has had. Milestones 1–5 ran
 without one, which is why every session so far re-derived its position from `ROADMAP.md` and
 `MILESTONE.md` and twice acted on a debt that had already closed.
@@ -289,6 +290,54 @@ the extraction cache was replayed refuse-on-miss.
 
 ## Recommended Next Step
 
+**Updated 2026-09-03 at session close. Four of the sweep's five techniques are measured on three
+corpora each. SPLADE is the only one left, and it is blocked on provisioning rather than on effort.**
+
+| corpus | HyDE | Reranking | Hybrid BM25 | Late chunking | SPLADE |
+| --- | --- | --- | --- | --- | --- |
+| SciFact | +0.03647 | +0.01266 | +0.01880 | −0.02232 | **blocked** |
+| FiQA | −0.00886 | −0.00951 | −0.04185 | +0.02800 | **blocked** |
+| ArguAna | −0.02053 | −0.06938 | +0.03978 | +0.01429 | **blocked** |
+
+**What blocks SPLADE, established 2026-09-03 by looking rather than assuming.** There is no SPLADE
+model anywhere: nothing in `~/.cache/ragnet-beir`, no `RAGNET_ONNX_SPLADE_*` convention beside the
+embed and rerank ones, no mention in `nightly.yml` or the provisioning docs, and no download script.
+`OnnxSpladeEncoderTests` drives an injected `WindowRunner` — a substitute — so **the encoder has
+never run against a real model in this repository.** A Real-protocol SPLADE cell is therefore
+*provision a model, invent the env convention, wire the row, then measure*, and the provisioning half
+has never been costed. That is why its allowlist entry says the retrieval owes a cell while the
+encoder has unit tests.
+
+**So the next step is a scoping decision, not a run.** Either cost the provisioning — which model,
+how large, from where, what env convention, whether the nightly can carry it — or state that the
+sweep ships with four of five techniques measured and SPLADE named as out of scope. Both are
+defensible; drifting into the second by leaving the entry open is not.
+
+**What is NOT blocked, if a run is wanted instead:** every technique above has a fourth corpus
+unrun. TREC-COVID's Real leg has never been embedded, so any cell on it pays a cold chunk-and-embed
+of a corpus 33x SciFact's, and HyDE additionally cannot run there at any budget because nobody has
+generated its hypotheticals. That is a paid generation run, not a scheduling decision.
+
+**Read the four measured techniques together before scheduling more of them.** Corpus dominates
+technique: SciFact is helped by three and harmed by one, FiQA harmed by three and helped by one,
+ArguAna split. **No technique in this table is a recommendation without naming the corpus**, and that
+is the sweep's result rather than a caveat on it.
+
+**Three standing cautions, each earned this session:**
+
+1. **Never run a cell with `RAGNET_BEIR_LONG_RUNS=1`.** It means every dataset. Use a name or a
+   comma-separated list; the gate has taken lists since #439.
+2. **Confirm every pin with a second run.** Seven cells were confirmed this session and all seven
+   reproduced their nDCG to five decimals while **none** reproduced its timing.
+3. **Do not derive a cell's cost from another cell.** Five derivations in this phase have missed —
+   high, low, by corpus size, by per-query rate, and by cost shape. The one entry that declined to
+   derive needed no correction.
+
+---
+
+**The text below predates 2026-09-03 and is kept for its reasoning, not its recommendation.**
+
+
 **Updated 2026-09-02. The answer-engine thread and the HyDE thread are both closed; the next step is
 another Real-protocol technique cell, and they are now safe to run one at a time.**
 
@@ -297,26 +346,224 @@ the Real control's 0.35569, −0.00886, reproduced.** It cost 29 m 47 s cold and
 this entry predicted, and it changed the reading of the SciFact cell rather than confirming it — see
 `ROADMAP.md`'s 6.2.1 block for the corrected framing.
 
-**The next step is a decision rather than a run, and it is the operator's.** Two of two techniques
-measured on two datasets are **corpus-dependent in sign**: HyDE is +0.036 on SciFact and −0.009 on
-FiQA; reranking is +0.013 and −0.010. A technique cell pinned on one dataset therefore says almost
-nothing about whether a user should switch that technique on, which is what these cells exist to
-answer.
+**~~The next step is a decision rather than a run~~ — DECIDED 2026-09-02 by the operator: every
+remaining technique gets three corpora, not one.** Taken on three datasets of evidence. HyDE is
+**+0.03647 on SciFact, −0.00886 on FiQA, −0.02053 on ArguAna** — it helps one and harms two.
+Reranking is +0.01266 and −0.00951 on the two it has. **Two of two techniques measured on more than
+one corpus are corpus-dependent in sign**, and a technique cell pinned on SciFact alone does not
+answer the question these cells exist for.
 
-So the remaining cells — hybrid BM25, late chunking, SPLADE — should either be **budgeted for two
-corpora each from the start**, or the phase should say plainly that its technique figures are
-SciFact's and not the library's. Both are defensible; drifting into the second by measuring one
-dataset per technique and writing it up as a property of the technique is not, and this phase has
-now done that once and had to correct it.
+**ArguAna is the specific warning.** Its parity cell reads −0.00139 — Phase 3.15 recorded it as the
+design's negative control, and it held — so the ablation table this library publishes reports HyDE as
+neutral on that corpus. On the corpus the library actually produces it costs **0.02 nDCG**, a ~15x
+move, and it is the worst-affected of the three. **A prediction that it would stay near zero was
+written down before the run and falsified by it.** Across the three the real/parity magnitude ratio
+is 0.67x, 1.63x and 14.8x. **The "parity predicts the sign" reading of that was RETIRED the same day
+by ArguAna's reranker cell**: across six (technique, corpus) pairs one flips — FiQA reranking is
++0.01372 at parity and −0.00951 real. Parity predicts neither magnitude nor, reliably, sign.
 
-Costs for that decision, measured rather than derived: a HyDE cell is ~3 m on SciFact and ~30 m on
-FiQA, cold, with no model calls. A reranker cell is 1 h 47 m and 6 h 18 m. Nothing here needs money;
-it needs machine time and a scheduled run per dataset.
+**The rejected alternative** was to measure one corpus per technique and state plainly that the
+figures are SciFact's. Rejected because this phase has already drifted into that twice and had to
+correct it both times — once when FiQA landed and again when ArguAna did.
 
-**Whichever way that goes, ArguAna is the cheapest unrun HyDE cell** — 24,003 units against FiQA's
-121,236, and its hypothetical cache exists from Phase 3.15. TREC-COVID remains unrunnable for HyDE
-at any budget: nobody has generated its hypotheticals, so the cell fails on refuse-on-miss after
-paying for the chunking.
+**Costs are not uniform and the decision was taken knowing it.** HyDE-shaped cells are cheap: 199.5 s
+on SciFact, 565.0 s on ArguAna, 1,786.9 s on FiQA — 43 minutes for a whole technique, no money.
+Reranker-shaped cells are not: 1 h 47 m and 6 h 18 m measured, and **ArguAna derived at 8–14 h**.
+
+**PRICE THESE CELLS ON QUERIES AS WELL AS UNITS.** Two estimates in this phase have been wrong by
+reasoning from corpus size alone: RealReranked's ~4 m derivation, wrong by 27x, and — the same day,
+in the message immediately after writing that lesson down — an estimate of ArguAna's reranker cell as
+"over an hour", wrong by roughly ten. ArguAna's HyDE cell cost 2.8x SciFact's on 19% more units
+because it judges 1,406 queries against 300. The measured rate is **21.4 s/query on SciFact and
+35.0 s/query on FiQA** for reranker cells.
+
+**~~RUNNING AS OF 2026-09-02, unattended: ArguAna `RealReranked`~~ — MEASURED and PINNED at 0.40621,
+2026-09-02.** Against its control, the ArguAna Real cell's 0.47559, that is **−0.06938: the largest
+technique effect this phase has measured, in either direction, and it is a harm.** Cost 22,976.2 s
+(6 h 23 m) against a derived 8–14 h; it ran at 16.3 s/query, below both rates the derivation
+bracketed it with. Reranking is now complete on three corpora.
+
+**~~STILL RUNNING when this was written: the confirmation re-run~~ — FINISHED and AGREED, 2026-09-02.**
+All three metrics identical to five decimals (0.40621 / 0.65505 / 0.32921), now asserting against the
+pin rather than reporting. **Every figure this phase has pinned has reproduced exactly**; four cells,
+four agreements, and none of the four timings reproduced.
+
+**Its cost corrected this phase's warm/cold model for the second time in one day, and the second
+correction was mine too.** Warm 13,385.3 s (3 h 43 m) against cold 22,976.2 s is **1.72x**:
+
+- The afternoon's reading was **11.6–18x**, generalised from three HyDE cells.
+- The evening's correction to it was **~1.0x for reranker cells**, reasoned from "a cross-encoder has
+  nothing to cache", and written into `STATE.md` and PR #446 as guidance.
+- The measurement is **1.72x**. Both readings were wrong in the same way: they treated the ratio as a
+  property of the **suite**. It is a property of each cell's **mix** — the share of its cost that is
+  page-cacheable I/O against the share that is compute. HyDE cells are retrieval-only, so nearly all
+  of their cost caches away. This cell's dense-retrieval side caches and its cross-encoder inference
+  does not, and 1.72x is where that lands.
+
+**So: predict a cell's warm cost from its composition, or do not predict it.** Confirming a reranker
+pin costs about 58% of taking it, not 100% and not 6%. The three cost predictions this phase made
+about reranker cells — "over an hour", "8–14 h", "the full 6 h 23 m again" — missed low, high, and
+high again. **Measure these cells; do not derive them.**
+
+**2026-09-03, fifth change — late chunking measured on three corpora, and it found a shipped defect
+on the way.**
+
+| corpus | HyDE | Reranking | Hybrid BM25 | Late chunking |
+| --- | --- | --- | --- | --- |
+| SciFact | +0.03647 | +0.01266 | +0.01880 | **−0.02232** |
+| FiQA | −0.00886 | −0.00951 | −0.04185 | **+0.02800** |
+| ArguAna | −0.02053 | −0.06938 | +0.03978 | **+0.01429** |
+
+**Late chunking is anti-correlated with the other three** — the only one negative on SciFact and
+positive on both others. **The first retrieval-quality figure it has ever had**: the allowlist entry
+claimed Phase 3.7 measured it, and 3.7 measured the parity dense anchor instead.
+
+**THE SHIPPED DEFECT, and it is the session's most consequential find.**
+`OnnxTokenEmbeddingOptions.MaxTokens` defaulted to **8192** where its sibling in the same package
+defaults to **256**, for the same model. Windowing therefore never triggered, ONNX threw at the
+position-embedding node, `LateChunkingStrategy` swallowed it, and `EmbeddingBehavior` backfilled
+ordinary embeddings — so **`UseLateChunking()` silently did nothing on every document long enough to
+need it**, with no error and no log. 1,401 of 9,506 SciFact units before the fix. Fixed to 256, and
+guarded by a test pinning the **relationship** between the two encoders' limits rather than the
+number.
+
+**It was found only because the benchmark seam refuses to fall back.** Nothing else in the repo
+would have surfaced it.
+
+**Two claims of mine retired by this thread**, both written as statements about corpora when the
+evidence only supported statements about the techniques measured so far: ArguAna's fragmentation
+explanation (refuted by hybrid), and "FiQA is the corpus nothing helps" (refuted by late chunking).
+
+**One framing error corrected.** Three places said the cell "keeps the Real protocol's boundaries and
+changes only how their vectors are computed". It varies **both** — late chunking windows at its own
+256 tokens, producing 9,507 / 73,014 / 11,137 units against the Real cells' 20,155 / 121,236 /
+24,003. The unit counts were available before the run. **So no figure here isolates whole-document
+context**; separating it needs a control with late chunking's boundaries and ordinary embeddings,
+which no cell runs.
+
+**And a guard of mine was weakened after it fired, deliberately and with arithmetic.** The original
+asserted no excluded document is judged-relevant; SciFact's 15319019 falsified it. It was replaced by
+a bounded check — worst case `affectedQueries / judgedQueries` = **0.00333 against a ±0.005 band** —
+which refuses outright above the band. Weakening "none" to "bounded" is defensible; weakening it to
+"reported" would not have been.
+
+**Costs 430.9 s / 2,295.7 s / 494.0 s, with NO warm speedup** — the only cell in the table where a
+re-run is not cheaper, because `EmbeddingCache` is keyed on text and a late-chunked vector is not a
+function of chunk text alone. Its budget entry declined to derive a cost beforehand, and it is the
+only cost entry in the phase that needed no correction after.
+
+**2026-09-03, fourth change — hybrid BM25 measured on three corpora, and it refuted an explanation
+this phase had asserted twice.**
+
+| corpus | HyDE | Reranking | Hybrid BM25 |
+| --- | --- | --- | --- |
+| SciFact | +0.03647 | +0.01266 | +0.01880 |
+| FiQA | −0.00886 | −0.00951 | **−0.04185** |
+| ArguAna | −0.02053 | −0.06938 | **+0.03978** |
+
+**Corpus dominates technique.** SciFact was helped by everything measured at the time; ~~**FiQA is
+harmed by everything measured**~~ — **RETIRED 2026-09-03 by late chunking at +0.02800**, the largest
+positive effect any technique has had on FiQA; ArguAna splits on the *kind* of matching.
+has no answer here without knowing the corpus — that is the phase's finding, not a caveat on it.
+
+**The refutation, and it was set up in writing before the run.** ArguAna's harm under HyDE and
+reranking had been attributed to its whole-argument relevance making 512-character fragments the
+wrong unit. This cell's own pre-run text said: *"BM25 is the test of that explanation: if fragments
+are the problem, a term-frequency model over the same fragments should suffer too."* **It does not
+suffer — +0.03978, the best Real-protocol figure ArguAna has**, above its Real dense control and
+above its parity dense. Fragmentation alone is not the cause. What survives is narrower and untested:
+the harm is specific to matching a document-shaped or semantically-rescored query against fragments.
+Both places the old claim was asserted are now struck and annotated in `ROADMAP.md`.
+
+**Sign held on all three hybrid pairs.** Across nine (technique, corpus) pairs measured under both
+protocols, **exactly one flips** — FiQA reranking. Parity predicts the sign eight times in nine and
+the magnitude never.
+
+**Costs: 172.5 s / 308.6 s / 1,164.4 s, no model calls.** The cheapest technique, as predicted.
+FiQA came in *below* its own ~58 m parity sibling, opposite to its derivation: BM25 indexing is
+term-count work, and many short chunks hold roughly the same terms as fewer long documents while each
+posting list is shorter. **Fourth cost derivation in this phase to miss.** ArguAna's held, and the
+difference is that it reasoned from a mechanism — query count drives these cells — rather than
+scaling a number from another corpus.
+
+**Two guards earned their keep on this branch.** Wiring the cells without `Describe` and `Filter`
+arms failed four fast-tier tests immediately — including `NoCellsDiscriminatorIsContainedInAnothers`
+and `TheSkipMessagesCommand_OptsInOnlyTheCasesOwnDataset`, both added in #439 — catching before push
+exactly the gap that left #433 red on CI for a day. The parity discriminator needed the same trailing
+underscore treatment as Hyde and Reranked did.
+
+**2026-09-03, third change — the `Delivered` blind spot closed the day after it was found.** All
+nine sections normalised to `✅ Done`; six took one-line pointers naming tests that already existed,
+three took allowlist entries with owning phases because nothing exercises them. **Section allowlist
+40 → 43 — worse and truer at once**, since those three were previously counted at zero by a guard
+that could not see them. Mutation-checked: removing the Weaviate pointer now fails the guard naming
+that section, which was impossible yesterday.
+
+**The status question resolved by evidence, not preference.** `Delivered` was never a status: the
+three vector stores sit between two `✅ Done` sections in the same region, and every `Delivered` line
+follows one authoring pattern where the status line carries the whole description. Nothing defined
+it anywhere.
+
+**And the cost estimate that preceded it was wrong in the useful direction.** The debt entry said
+folding these in meant "nine pointer-writing tasks, which is work rather than a one-line fix". Six
+were one-line fixes. The estimate was made without checking what already existed — the same
+incomplete-look shape as the Late Chunking slip in that entry's first draft, on the same day, in the
+same entry. **Check before costing, not after.**
+
+**2026-09-03, second discharge — `Rag.NET.QueryTechniques`, allowlist 19 → 18. 6.2.1 now owns none
+of the remaining entries.** `HydePipelineParityTests` holds the shipped `HydeBehavior` to the
+harness's `HydeAblationRow`: same three hypotheses, same store, a real `AddRagNet` pipeline with
+`UseHyde` on one side and the row's own pooling on the other, identical ids, scores and order. Fast
+tier — no model, no corpus, no network. **Mutation-checked**: skewing one component of the shipped
+pooled vector by 5% fails it at rank 0 on a 0.0002 score difference.
+
+**This is what the yesterday's warning was about, now closed.** The three HyDE figures executed no
+line of the package; the two pooling implementations were arithmetically identical line for line, in
+two assemblies, with nothing tying them together. The test ties them, so the figures describe shipped
+behaviour rather than a re-implementation.
+
+**Level `integration`, deliberately not `benchmark`.** Enough to say the figures describe the shipped
+path; not enough to say a benchmark ran through it, because the parity corpus is six documents in two
+dimensions rather than a BEIR corpus in 384. **Claiming `benchmark` would be the same overclaim this
+phase has twice retracted.** Running a Real cell through the shipped generator would earn it and was
+considered; it was not taken.
+
+**One geometry error worth carrying**, because it cost a cycle and the fix is general: the first
+fixture put the three hypotheses on documents 3, 4 and 5, expecting their mean to rank the corpus in
+reverse. **The mean of three unit vectors points at the middle one**, so the resultant landed exactly
+on document 4 and documents 3 and 5 tied — a ranking decided by sort stability rather than geometry.
+The angles are asymmetric now (3.8, 4.3, 5.1 steps, resultant 4.399) and the expected order was
+computed from the geometry rather than read off a run. **A pinned expectation derived from the code
+under test pins nothing.**
+
+**2026-09-03 — the exit condition's allowlist moved for the first time this milestone.**
+`PackagesAllowedToStayUnit` **20 → 19**, `SectionsAwaitingExercise` **42 → 40**, by discharging
+`Rag.NET.AnswerEngines`: all three engines carry a pinned figure against a control, so the package
+went `unit` → **`benchmark`**, and Map-Reduce and Refine gained `Exercised by:` pointers naming the
+arm, the reproduction and the number. Both halves are guard-enforced and were **mutation-checked**,
+not assumed: reverting the level fails `NoPackageStaysAtBareUnit`, removing a pointer fails the
+exercise guard. 94/94 conventions tests green.
+
+**`Rag.NET.QueryTechniques` was NOT discharged, and this is the trap to avoid next session.** Three
+corpora of HyDE figures make it look done. `HydeAblationRow` imports `HydeOptions` and nothing else
+from the package — the hypotheticals come from `HypotheticalCache`, written by a separate generation
+tool, and the shipped `LlmHypotheticalDocumentGenerator` is exercised only by unit tests. **The
+measurements characterise the technique and touch none of the shipped code.** Closing it needs a
+test proving the harness row and the shipped generator agree — the same harness-versus-shipped-path
+gap the pipeline-parity test closed for retrieval — not another measurement.
+
+**And a guard blind spot was found while doing it**, recorded in `ROADMAP.md`'s follow-up debts and
+assigned to this phase: `FeatureExerciseTests` matches the literal `**Status:** ✅ Done`, so the
+**nine `**Status:** Delivered` sections are invisible to it** — including HyDE v2, FLARE, SPLADE and
+the Weaviate/Chroma/Pinecone stores, six of which are 6.2.1's own threads. The phase cannot claim
+"every plan row has its pointer" while nine rows are outside the guard. Deliberately not fixed on
+discovery: whether `Delivered` is a distinct status or drift is undetermined, and widening the marker
+turns nine sections into nine pointer-writing tasks. **Decide the status question first.**
+
+**HyDE is finished on every corpus where it can be measured.** TREC-COVID is not unscheduled but
+**unmeasurable at any budget**: nobody has generated its hypotheticals, so the cell fails on
+refuse-on-miss after paying for the chunking. A fourth corpus for HyDE means a **paid generation
+run** that has never been costed — a separate piece of work, not a scheduling decision.
 
 **Do not run any cell with `=1`.** It still means every dataset, and TREC-COVID's Real leg has never
 been embedded — a `RealHyde` or `RealReranked` run that reaches it chunks and embeds a corpus 33x
@@ -657,16 +904,39 @@ much larger than answer generation's.
 > really on `main`, grep for the symbol — do not trust a PR's MERGED label, which has been wrong
 > here before.
 
-**Last landed on `main`:** **#433** as `e4923341` (2026-09-02) — HyDE and reranking measured over
-Rag.NET's own chunking, plus the fix that turned the branch's day-old red CI green. Verify by
-content: the pinned `0.71389` in
-`tests/Rag.NET.Benchmarks.Quality.IntegrationTests/BeirReproduction.cs`, and `UnderCachedHyde_` —
-underscore load-bearing — in `BeirRunBudget.cs`.
+**Last landed on `main`:** **#452** as `d7d20666` (2026-09-03) — late chunking measured on three
+corpora, and the `MaxTokens` shipped defect it exposed. Verify by content: `MaxTokens { get; set; }
+= 256` in `src/Rag.NET.Embeddings.Onnx/OnnxTokenEmbeddingOptions.cs`, and the pinned `0.65510` in
+`BeirReproduction.cs`.
 
-With it, **#439** as `f66b1677` (2026-09-02) — `RAGNET_BEIR_LONG_RUNS` scoped to named datasets, so
-a cell can be measured without ungating TREC-COVID. Verify by content: `IsOptedInFor` in
-`tests/Rag.NET.Benchmarks.Quality.IntegrationTests/BeirRunBudget.cs`. Merged main verified after
-both: 225 tests, 0 failed, 94 skipped.
+Before it, in order: **#451** `b3e7473b` hybrid BM25 on three corpora; **#450** `784d3b5c` the nine
+`Delivered` sections normalised so the exercise guard can see them; **#449** `9ed26ff8` the HyDE
+pipeline-parity test and `QueryTechniques` discharged; **#448** `fd0f8f48` `AnswerEngines`
+discharged; **#446** `93134872` ArguAna reranking and the retraction of "parity predicts the sign";
+**#444** `8fb7f00a` the three-corpora scope decision.
+
+**Twelve PRs merged across 2026-09-02 and 2026-09-03**, each verified on `main` by content rather
+than by a MERGED label.
+
+**This field was seven PRs stale when the session closed — the tenth occurrence of the pattern its
+own note above describes.** It goes stale at the moment work merges, which is the moment nobody is
+editing this file. The note says to derive the branch with `git branch --show-current` and check
+`main` by content; that advice held every time it was followed and this field still drifted whenever
+several PRs landed in one sitting.
+
+Before it, **#442** as `05943fff` — FiQA HyDE at 0.34683, and the correction to what SciFact's cell
+had been read to mean. Verify by content: `0.34683` in the same file.
+
+Before it, **#441** as `da22a05e` — the roadmap record for HyDE and the scoped gate. Verify by
+content: `HyDE's thread completed 2026-09-02` in `docs/planning/ROADMAP.md`.
+
+Before them, **#433** as `e4923341` — HyDE and reranking measured over Rag.NET's own chunking, plus
+the fix for the branch's day-old red CI — and **#439** as `f66b1677`, `RAGNET_BEIR_LONG_RUNS` scoped
+to named datasets. Verify by content: `UnderCachedHyde_` (underscore load-bearing) and `IsOptedInFor`
+in `BeirRunBudget.cs`.
+
+**Five PRs merged 2026-09-02, each verified on `main` by content rather than by a MERGED label.**
+Merged main re-run after the first two: 225 tests, 0 failed, 94 skipped.
 
 Before them, **#431** as `8b2e0124` (2026-08-31) — `mapreduce` pinned at 0.6483, a null result, and
 the DoD's answer-engine clause closed. Before it **#430** (`ced43abb`) and **#425** (`3640637b`).

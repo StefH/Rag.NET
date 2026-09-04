@@ -10,6 +10,32 @@ Anything added here follows one rule: record it with its origin, then schedule i
 phase or re-justify it. Closed items move to the list below rather than vanishing, so a
 future reader can tell the difference between "never existed" and "dealt with".
 
+- ~~**`FeatureExerciseTests` cannot see nine features, and six of them are 6.2.1's own**~~ **CLOSED
+  2026-09-03, the day after it was found.** The guard matched the literal `**Status:** ✅ Done`, so
+  the nine sections written as `**Status:** Delivered` were outside it entirely — no pointer
+  required, no allowlist entry, no contribution to its parse-count check.
+  **The status question the entry said to answer first was answered by evidence, and the answer is
+  that `Delivered` was never a status.** It is a formatting variant: the three vector stores sit
+  between two `✅ Done` sections in the same region of the file, and every `Delivered` line follows
+  one authoring pattern — `Delivered. <TypeName> (register with UseX)` — where the status line
+  carries the whole description instead of a marker plus prose. Nothing in `features.md` or the
+  guard ever defined it.
+  All nine were normalised to `✅ Done`, keeping their prose. **Six took a one-line pointer naming
+  tests that already existed** — Weaviate, Chroma and Pinecone are `VerifiedBy=container` with real
+  container suites; Proposition Chunking has strategy and registration tests; FLARE's arm is pinned
+  at +0.0075 (p=0.0135); HyDE v2's pointer landed with the parity test in #449. **Three had no
+  exerciser at all** and took allowlist entries with owning phases instead of a pointer nobody could
+  back: Sliding Window Chunking (6.2), Multi-Index Federation (6.2), and SPLADE — whose *encoder*
+  has unit tests while SPLADE *retrieval* owes a Real-protocol cell (6.2.1).
+  **The section allowlist went 40 → 43, which is the number getting worse and truer at once.** Those
+  three features were previously counted at zero because nothing could see them. The guard's
+  expected-count doc moved 51 → 60. Mutation-checked: removing the Weaviate pointer now fails the
+  guard naming that section, which it could not have done yesterday.
+  **What this cost to find:** an incidental grep while discharging a different allowlist entry. The
+  6.0 inventory counted "49 Done sections without an exercise pointer" and would have counted these
+  nine at zero — a guard reporting green over what it cannot see is the failure mode this whole
+  ledger exists to prevent, and it had it.
+
 - **Seven guide pages are unreachable from the sidebar** (found in the Phase 3.4 Part D review):
   `sidebars.ts` omits `guide/security`, `guide/memory`, `guide/resilience`, `guide/data-providers`,
   `guide/mediator`, `guide/graphrag` and `guide/raptor`. They exist and are linked from other
@@ -4267,12 +4293,52 @@ and re-measured~~ (met 2026-08-18); ~~the pipeline-parity test is in the fast ti
 2026-08-27 — **both legs now run and pass as of 2026-08-28**, see below); the
 guards' allowlist is empty.
 
+**Allowlist progress, 2026-09-03.** `PackagesAllowedToStayUnit` **20 → 19** and
+`SectionsAwaitingExercise` **42 → 40**, by discharging `Rag.NET.AnswerEngines`: all three of its
+engines now carry a pinned figure against a control, so the package went `unit` → **`benchmark`** and
+Map-Reduce and Refine gained `Exercised by:` pointers naming the arm, the reproduction and the
+number. **Both halves are guard-enforced rather than asserted** — raising the level without deleting
+the entry fails `EveryPackageAllowedToStayUnitIsStillBareUnit`, deleting it without raising fails
+`NoPackageStaysAtBareUnit`, and both were mutation-checked here rather than assumed.
+
+**`Rag.NET.QueryTechniques` discharged 2026-09-03 — allowlist 19 → 18.** The gap this closes was
+named the day before and is worth restating, because three corpora of HyDE figures made the package
+look already done: `HydeAblationRow` imports `HydeOptions` and nothing else from it, the
+hypotheticals come from `HypotheticalCache` written by a separate generation tool, and the shipped
+`LlmHypotheticalDocumentGenerator` was exercised only by unit tests. **The measurements
+characterised the technique and executed none of the shipped code.**
+
+**What made that a live hazard rather than a pedantic one:** both sides mean-pool and L2-normalise,
+and `HydeAblationRow.BuildSearchVector` and `HydeBehavior.AverageAndNormalize` are arithmetically
+identical line for line — same summation, same divide-by-count, same double-accumulated norm, same
+`Math.Sqrt`. Two copies of one calculation, in two assemblies, with nothing tying them together.
+
+`HydePipelineParityTests` ties them: the same three hypotheses over the same store, through a real
+`AddRagNet` pipeline with `UseHyde` on one side and the row's own pooling on the other, asserting
+identical ids, scores and order. Fast tier, no model, no corpus, no network — the same shape as the
+dense `PipelineParityTests`, which closed this gap for retrieval. **Mutation-checked**: skewing one
+component of the shipped pooled vector by 5% fails it at rank 0 on a score difference of 0.0002.
+
+**The package went `unit` → `integration`, deliberately not `benchmark`.** The chain now reads: three
+Real-protocol figures pinned for the harness row, and a test proving the shipped path is the same
+computation. That is enough to say the figures describe shipped behaviour, and **not** enough to say
+a benchmark ran through it — the parity corpus is six documents in two dimensions, not a BEIR corpus
+in 384. Claiming `benchmark` would be the overclaim this phase has twice had to retract. The Real
+cell through the shipped generator remains available if that level is ever wanted; it was considered
+and not taken.
+
+**The remaining 18 are not this phase's to clear:** 17 are 6.1's credential-blocked connectors and
+one is `Chunking.Templates`, owned by 6.2. **6.2.1 now owns none of them** — `Rag.NET.AnswerEngines`
+and `Rag.NET.QueryTechniques` were its two, both discharged 2026-09-03. The exit condition's
+allowlist clause is therefore no longer blocked on this phase's own work; what remains of it is
+6.1's accounts.
+
 **Open threads, 2026-08-20** — what is actually left, now that #247 and the local-search work have
 closed: ~~RAPTOR~~ (**complete 2026-08-27**, Tasks 1-6 — measured, pinned, and written down; see
 below), ~~HyDE~~ (**SciFact measured 2026-09-02 in #433**, 0.71389 against the Real control's
-0.67742, +0.03647; **FiQA measured the same day**, 0.34683 against 0.35569, −0.00886, so the sign is the corpus rather than the technique; ArguAna and TREC-COVID unrun and each now measurable alone — see below), reranking
+0.67742, +0.03647; **FiQA measured the same day**, 0.34683 against 0.35569, −0.00886, so the sign is the corpus rather than the technique; **ArguAna measured the same day**, 0.45506 against 0.47559, −0.02053, which falsified the prediction that its near-zero parity effect would stay near zero; TREC-COVID unrunnable for HyDE at any budget, its hypotheticals never generated — see below), reranking
 (**SciFact and FiQA measured 2026-09-02 in the same PR**, +0.01266 and −0.00951; ArguAna and
-TREC-COVID unrun), hybrid BM25, late chunking and SPLADE under the Real protocol; ~~the
+TREC-COVID unrun), ~~late chunking~~ (**all three scheduled corpora measured 2026-09-03**: SciFact −0.02232, FiQA +0.02800, ArguAna +0.01429 — anti-correlated with the other three, and it found the `MaxTokens` shipped defect; see below), ~~hybrid BM25~~ (**all three scheduled corpora measured 2026-09-03**: SciFact +0.01880, FiQA −0.04185, ArguAna +0.03978 — and ArguAna refutes the fragmentation explanation the phase had been carrying; see below), SPLADE under the Real protocol — still blocked on a model nobody has provisioned or costed; ~~the
 three answer engines as arms~~ (**built 2026-08-28** on `feat/answer-engine-arms`, not yet merged —
 five arms, `flare` included; no pilot run; see below); every vector store through the SciFact parity
 leg; ~~the
@@ -4894,19 +4960,77 @@ much on the corpus this library actually produces as it does on whole documents"
 from **one dataset** presented as the shape of the result, and the second dataset does not merely
 fail to confirm it: it moves the other way.
 
-| dataset | parity dense | parity HyDE | Δ | real dense | real HyDE | Δ |
-| --- | --- | --- | --- | --- | --- | --- |
-| SciFact | 0.64593 | 0.70001 | **+0.05408** | 0.67742 | 0.71389 | **+0.03647** |
-| FiQA | 0.37086 | 0.36543 | **−0.00543** | 0.35569 | 0.34683 | **−0.00886** |
+| dataset | parity dense | parity HyDE | Δ | real dense | real HyDE | Δ | ratio |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| SciFact | 0.64593 | 0.70001 | **+0.05408** | 0.67742 | 0.71389 | **+0.03647** | 0.67x |
+| FiQA | 0.37086 | 0.36543 | **−0.00543** | 0.35569 | 0.34683 | **−0.00886** | 1.63x |
+| ArguAna | 0.50432 | 0.50293 | **−0.00139** | 0.47559 | 0.45506 | **−0.02053** | **14.8x** |
 
-**HyDE's sign is a property of the corpus, not of the protocol.** Positive stays positive and
-negative stays negative across both protocols. What the chunked corpus changes is the *magnitude*,
-and **not in a consistent direction** — SciFact's advantage shrinks toward zero while FiQA's deficit
-grows away from it. There is no single ratio to quote, and quoting one was the error.
+**HyDE's sign is a property of the corpus, not of the protocol** — that holds on all three. Positive
+stays positive, negative stays negative. **Its magnitude has no usable relationship to the parity
+figure at all**, which ArguAna established on 2026-09-02 by falsifying a prediction made before it
+ran.
+
+**The prediction and its failure, recorded because the failure is the finding.** ArguAna's parity
+cell is −0.00139 — the nearest to zero of the three, and Phase 3.15 recorded it as the design's
+negative control, which held. The stated expectation was that a near-zero parity effect would stay
+near zero on the chunked corpus. It moved to **−0.02053, about 15x**, and is the largest HyDE effect
+of the three datasets in either protocol. Across the three the real/parity ratio is 0.67x, 1.63x and
+14.8x: it shrinks, it grows, and it explodes.
+
+~~**So a parity ablation figure predicts the sign of the real effect and nothing else.**~~
+**RETIRED the same day it was written, 2026-09-02, by ArguAna's reranker cell.** The sentence above
+generalised from HyDE's three cells, where the sign did hold on all three. With reranking measured on
+the same three corpora there are **six (technique, corpus) pairs under both protocols, and one of the
+six flips**: FiQA reranking is **+0.01372 at parity** (0.38458 against 0.37086) and **−0.00951 real**
+(0.34618 against 0.35569). Parity does not reliably predict even the direction.
+
+**The claim's failure is a lesson about the claim, not about reranking.** It was asserted from three
+pairs, written into `ROADMAP.md` and `STATE.md`, merged twice, and falsified within hours by the
+fourth technique-corpus pair measured after it. FiQA's parity reranker figure — the one that
+falsifies it — **was already pinned in `BeirReproduction` at the time the claim was made**, and was
+recorded in that PR's own table as an em-dash rather than looked up. The generalisation was one grep
+away from never being made.
+
+**What is actually supported, on six pairs:** a parity ablation figure is not a reliable guide to the
+real effect's magnitude *or* its sign. It is a figure about one-chunk-per-document truncated at 256
+tokens, and this library does not produce that corpus. Reading anything from it about the shipped
+configuration requires the real cell.
+
+ArguAna remains the sharpest illustration for HyDE: its parity number reports the technique as
+neutral on that corpus — Phase 3.15 recorded it as the design's negative control, and it held — and
+on the corpus this library actually produces it costs 0.02 nDCG. A reader of the parity table would
+switch HyDE on for ArguAna without concern.
+
+**Reranking on the three corpora, completed 2026-09-02:**
+
+| dataset | parity dense | parity rerank | Δ | real dense | real rerank | Δ |
+| --- | --- | --- | --- | --- | --- | --- |
+| SciFact | 0.64593 | 0.68442 | **+0.03849** | 0.67742 | 0.69008 | **+0.01266** |
+| FiQA | 0.37086 | 0.38458 | **+0.01372** | 0.35569 | 0.34618 | **−0.00951** |
+| ArguAna | 0.50432 | 0.47917 | **−0.02515** | 0.47559 | 0.40621 | **−0.06938** |
+**Both techniques help one corpus and harm two on the corpus this library actually produces**, and
+**ArguAna is worst hit by both** — −0.02053 under HyDE and −0.06938 under reranking, the two largest
+effects the phase had measured at the time. ~~Same corpus, same candidate explanation: its relevance
+is whole-argument against whole-argument, so 512-character fragments are the wrong unit for it~~ —
+**REFUTED 2026-09-03 by the RealHybridBm25 cell, which is +0.03978 on ArguAna over the identical
+fragments.** A term-frequency model over the same units does not suffer; it produces that corpus's
+best Real-protocol figure. Fragmentation alone is not the cause. What survives is narrower and
+untested: the harm is specific to matching a *document-shaped or semantically-rescored* query against
+fragments — a hypothetical-document vector, or a cross-encoder scoring query against passage — not to
+the fragments themselves. See the hybrid entry below.
+
+**Candidate mechanism, as reasoning and not measurement.** HyDE searches with a hypothetical
+*document* vector, and ArguAna's relevance is whole-argument against whole-argument. Chunking already
+costs that corpus −0.02873 unaided — 0.50432 parity to 0.47559 real, the largest chunking penalty of
+the three — so a document-shaped query vector matched against 512-character fragments compounds a
+mismatch the other two corpora do not have. **It WAS testable, and it was tested.** As stated it is **REFUTED**: the RealHybridBm25 cell below is +0.03978 on this corpus over the identical fragments. The compounding argument may still hold for the DENSE half specifically, but "fragments are the wrong unit for ArguAna" does not, because a lexical ranker over those fragments produces the corpus's best Real-protocol figure. It also predicts late
+chunking should recover part of the loss, and late chunking is an unrun cell in this same phase.
 
 **Note that HyDE was already slightly negative on FiQA at parity.** The library's own ablation table
 has carried 0.36543 against a 0.37086 anchor since Phase 3.15, so "HyDE helps" was never this
-project's finding — it was SciFact's, and nobody had said so.
+project's finding — it was SciFact's, and nobody had said so. With ArguAna measured, **HyDE helps on
+one of the three corpora this project benchmarks and harms the other two.**
 
 **Reranking behaves the same way and was measured in the same PR**: SciFact +0.01266 (0.69008 against
 0.67742) where its parity cell is +0.039, and FiQA −0.00951 (0.34618 against 0.35569, 648 of 648
@@ -4920,15 +5044,162 @@ them. Costed rather than assumed: FiQA's HyDE cell was 29 m 47 s and paid no mod
 ablation figure is not a statement about the corpus this library produces, in either direction. It
 overstated HyDE's help on SciFact and understated its harm on FiQA.
 
-**Cost is recorded as two numbers per cell, because cold and warm differ by 16–18x** — SciFact
-199.5 s then 12.5 s, FiQA 1,786.9 s then 99.3 s, each pair on the same machine and binary with
-nothing changed between them. **Two cells agreeing on the ratio makes it a property of these runs
-rather than one odd measurement.** The candidate cause is the OS page cache over the embedding
-cache's shard files, recorded as a **candidate and not a diagnosis**; in-process chunking is redone
-on every run, so it is not that. `BeirRunBudget` carries both figures per cell and says to budget
-against the cold one. This is the same shape as the 23x artefact that produced three false findings
-in one day, caught this time because each pin was confirmed by a second run rather than trusted from
-one — and both nDCG figures reproduced to five decimals while their timings did not.
+**Hybrid BM25's thread completed 2026-09-03 — the sweep's third technique, and the one that refutes
+an explanation this phase had been carrying.** Wired as `RealHybridBm25` and measured on all three
+scheduled corpora under the scope decision of 2026-09-02.
+
+| dataset | parity dense | parity hybrid | Δ | real dense | real hybrid | Δ |
+| --- | --- | --- | --- | --- | --- | --- |
+| SciFact | 0.64593 | 0.69913 | **+0.05320** | 0.67742 | 0.69622 | **+0.01880** |
+| FiQA | 0.37086 | 0.35665 | **−0.01421** | 0.35569 | 0.31384 | **−0.04185** |
+| ArguAna | 0.50432 | 0.51173 | **+0.00741** | 0.47559 | 0.51537 | **+0.03978** |
+
+**ArguAna refutes the fragmentation explanation, and the refutation was set up in writing before the
+run.** HyDE cost that corpus 0.02053 and reranking 0.06938, both attributed here to its relevance
+being whole-argument against whole-argument, making 512-character fragments the wrong unit for it.
+This cell's own pre-run reproduction text said so explicitly: *"BM25 is the test of that
+explanation: if fragments are the problem, a term-frequency model over the same fragments should
+suffer too."* It does not suffer. **+0.03978 is the best Real-protocol figure ArguAna has** — above
+its Real dense control and above its parity dense 0.50432.
+
+**So fragmentation alone is not what hurt the other two.** Whatever does is specific to matching a
+*document-shaped or semantically-rescored* query against fragments, not to the fragments themselves:
+HyDE searches with a hypothetical document vector, a cross-encoder rescores a query against a
+passage, and both degrade on this corpus while a term-frequency model over the identical units
+improves on it. The narrower explanation is untested and should be labelled as such wherever the old
+one was asserted.
+
+**The cross-technique picture on the corpus this library produces, now complete for three techniques
+and three corpora:**
+
+| corpus | HyDE | Reranking | Hybrid BM25 |
+| --- | --- | --- | --- |
+| SciFact | +0.03647 | +0.01266 | +0.01880 |
+| FiQA | −0.00886 | −0.00951 | **−0.04185** |
+| ArguAna | −0.02053 | −0.06938 | **+0.03978** |
+
+**Corpus dominates technique.** SciFact was helped by everything measured at the time; ~~**FiQA is harmed by
+everything measured**, making it the only corpus where nothing has helped~~ — **RETIRED 2026-09-03 by
+late chunking, which is +0.02800 on FiQA**, the largest positive effect any technique has had there.
+The claim was true of the three techniques measured then and false as a statement about the corpus.
+ArguAna splits on the kind
+of matching rather than on the technique's name. A user asking "should I turn on hybrid search"
+cannot be answered from this table without knowing their corpus, and that is the phase's finding
+rather than a caveat on it.
+
+**Sign held on all three hybrid pairs.** Across all nine (technique, corpus) pairs now measured under
+both protocols, **exactly one flips** — FiQA reranking, +0.01372 at parity and −0.00951 real. Parity
+predicts the sign eight times in nine and the magnitude never.
+
+**Cost: 172.5 s SciFact, 308.6 s ArguAna, 1,164.4 s FiQA, no model calls at any of them** —
+`InMemoryBm25Index` is in process and the chunk embeddings were already cached by the Real and
+RealReranked cells. As predicted, the cheapest of the three techniques. **FiQA came in below its own
+parity sibling's ~58 m, which is the opposite of what its derivation expected:** BM25 indexing is
+term-count work, and 121,236 short chunks hold roughly the same terms as 57,600 long documents while
+each posting list is shorter, so the corpus grew in rows and shrank in per-row work. Fourth cost
+derivation in this phase to miss. **ArguAna's held**, and the difference is that it reasoned from a
+mechanism — query count drives these cells — rather than scaling a number from another corpus.
+
+**Late chunking's thread completed 2026-09-03 — the sweep's fourth technique, and the one that
+found a shipped defect on the way.** Wired as `RealLateChunking` and measured on all three
+scheduled corpora. **It is the first retrieval-quality figure late chunking has ever had**: the
+allowlist entry that owed this cell said it was "measured once in Phase 3.7 and never pinned", and
+3.7 built the harness and measured SciFact's parity dense anchor instead. Phase 3.13 verified late
+chunking *functionally* after fixing a normalisation defect, which is a different claim.
+
+| corpus | real dense | late chunking | Δ |
+| --- | --- | --- | --- |
+| SciFact | 0.67742 | 0.65510 | **−0.02232** |
+| FiQA | 0.35569 | 0.38369 | **+0.02800** |
+| ArguAna | 0.47559 | 0.48988 | **+0.01429** |
+
+**A SHIPPED DEFECT, found because the benchmark seam refuses to fall back.**
+`OnnxTokenEmbeddingOptions.MaxTokens` defaulted to **8192** while its sibling
+`OnnxEmbeddingOptions.MaxTokens` — same option name, same package, same model — defaults to **256**.
+That value decides whether the windowing its own documentation promises happens at all; at 8192 it
+never did, and `all-MiniLM-L6-v2` was handed sequences it cannot embed, throwing at the
+position-embedding node. **`LateChunkingStrategy` catches generator failures and falls back to
+unembedded chunks, and `EmbeddingBehavior` then backfills those with ordinary embeddings** — each
+correct alone, and together meaning a caller who configured `UseLateChunking()` with this library's
+own model got **ordinary embeddings on exactly the documents long enough to need late chunking**,
+with no error and no log unless they passed one. Measured before the fix: **1,401 of 9,506 SciFact
+units**, and 393 of the first 400 document failures were this cause. Fixed to 256 and guarded by a
+test that pins **the relationship** between the two encoders' limits rather than the number, so they
+cannot drift apart again in either direction.
+
+**The finding is anti-correlation.** Late chunking is the only technique measured here that is
+negative on SciFact and positive on both other corpora — the exact inverse of HyDE and reranking:
+
+| corpus | HyDE | Reranking | Hybrid BM25 | Late chunking |
+| --- | --- | --- | --- | --- |
+| SciFact | +0.03647 | +0.01266 | +0.01880 | **−0.02232** |
+| FiQA | −0.00886 | −0.00951 | −0.04185 | **+0.02800** |
+| ArguAna | −0.02053 | −0.06938 | +0.03978 | **+0.01429** |
+
+**It retires this phase's claim that FiQA is the corpus nothing helps**, written into `ROADMAP.md`
+and `STATE.md` with the hybrid result. That was true of the three techniques measured then and false
+as a statement about the corpus: **+0.02800 is the largest positive effect any technique has had on
+FiQA.**
+
+**And ArguAna confirms a prediction written before the run.** The chain: HyDE and reranking harm
+ArguAna most; hybrid BM25 refuted the fragmentation explanation by scoring +0.03978 over the
+identical fragments; what survived was that the harm is specific to matching a *document-shaped or
+semantically-rescored* query against fragments; late chunking attacks exactly that by giving each
+fragment a vector computed with whole-document context. It recovers, as the cell's reproduction entry
+predicted it would. The pattern fits the same where-relevance-lives axis Phase 3.12 recorded for
+chunking itself: whole-document context helps when relevance is whole-argument and blurs it when
+relevance is a claim supported by two sentences inside an abstract.
+
+**CAVEAT, attached to all three figures and not small: this cell varies boundaries AND embedding.**
+`LateChunkingStrategy` windows at its own 256 tokens rather than reusing `RecursiveChunkingStrategy`,
+so it produced 9,507 / 73,014 / 11,137 units against the Real cells' 20,155 / 121,236 / 24,003 —
+consistently fewer and larger. For corpora where relevance is document-level, that alone could
+produce these results with no contribution from context. **Separating them needs a control with late
+chunking's boundaries and ordinary embeddings, which no cell runs.** The mechanism is
+consistent-with, not confirmed. **This was mis-stated when the cell was written** — three places said
+it "keeps the Real protocol's boundaries and changes only how their vectors are computed", and the
+unit counts were available before the run.
+
+**Exclusions, and why the figures survive them.** Text carrying control characters that BERT's own
+reference implementation deletes cannot be late-chunked without breaking offset mapping, so those
+units are excluded rather than backfilled: 8 documents on SciFact, 49 on FiQA, 1 on ArguAna.
+Excluding is not substituting — a backfilled ordinary embedding under late chunking's name is the
+failure the seam exists to prevent. One SciFact exclusion is relevant to a judged query, which
+falsified the original "no excluded document is judged-relevant" assertion; it was replaced by a
+**bounded** check computing the worst case as `affectedQueries / judgedQueries` = **0.00333 against
+a ±0.005 reproduction band**, disclosed in the run's output and refused outright above the band.
+
+**Cost: 430.9 s / 2,295.7 s / 494.0 s, no model calls — and no warm speedup.** This is the one cell
+where a re-run is not cheaper: `EmbeddingCache` is keyed on text, and a late-chunked vector is not a
+function of chunk text alone. Every other cell shows 1.72–18x warm; this shows none. **Its budget
+entry declined to derive a cost before the run** on the grounds that four derivations in this phase
+had already missed by scaling from cells of a different shape — and it is the only cost entry in the
+phase that needed no correction afterwards.
+
+**Cost is recorded as two numbers per cell, because cold and warm differ by 1.72–18x** — SciFact HyDE
+199.5 s then 12.5 s, FiQA HyDE 1,786.9 s then 99.3 s, ArguAna HyDE 565.0 s then 48.6 s, ArguAna
+reranker 22,976.2 s then 13,385.3 s. Each pair ran on the same machine and binary with nothing
+changed between them.
+
+**The ratio is a property of each cell's mix, not of the suite**, and that took two wrong readings to
+establish. The three HyDE cells gave 16x, 18x and 11.6x, which was generalised to the suite. The
+reranker cell was then predicted at ~1.0x on the reasoning that a cross-encoder has nothing to cache.
+It measured **1.72x**. Both readings treated a ratio as a constant: it tracks the share of a cell's
+cost that is page-cacheable I/O against the share that is compute. HyDE cells are retrieval-only, so
+nearly all of their cost caches away; a reranker's dense-retrieval side caches and its cross-encoder
+inference does not. **Predict a cell's warm cost from its composition or do not predict it**, and
+budget against the cold figure either way.
+
+The candidate cause of the cacheable part is the OS page cache over the embedding cache's shard
+files, recorded as a **candidate and not a diagnosis**; in-process chunking is redone on every run, so
+it is not that. This is the same shape as the 23x artefact that produced three false findings in one
+day, caught this time because each pin was confirmed by a second run rather than trusted from one —
+**all four nDCG figures reproduced to five decimals while none of the four timings did.**
+
+**And cold cost does not order by corpus size.** ArguAna's 24,003 units are 19% above SciFact's
+20,155 and it cost 2.8x as much, because it judges all 1,406 of its queries against SciFact's 300.
+**Query count drives these cells as much as corpus size does** — worth knowing before pricing the
+remaining ones off unit counts, which is how the RealReranked estimate came to be wrong by 27x.
 
 **#433 was red on CI for a day and nobody had read why**, which is the part worth carrying forward.
 Adding `RealHyde` and `RealReranked` to `BeirProtocol` left three exhaustive constructs behind —
@@ -4963,10 +5234,32 @@ turns a typo into the most expensive run available. The skip messages print the 
 remaining technique cell in this phase is now measurable one dataset at a time**, which is most of
 why it was worth doing before the measurement rather than after.
 
+**DECIDED 2026-09-02 — every remaining technique gets three corpora, not one.** The operator's call,
+taken on three datasets of evidence rather than as a principle. HyDE is +0.03647 on SciFact,
+−0.00886 on FiQA and −0.02053 on ArguAna; reranking is +0.01266 and −0.00951 on the two it has. **Two
+of two techniques measured on more than one corpus are corpus-dependent in sign**, and ArguAna showed
+that a parity cell reading as a clean negative control can hide a 0.02 harm on the corpus this
+library actually produces. A technique cell pinned on SciFact alone does not answer the question
+these cells exist for, which is whether a user should switch the technique on.
+
+**What it costs is not uniform, and the decision was taken with that in front of it.** HyDE-shaped
+cells are cheap: all three cost 43 minutes combined and no money. Reranker-shaped cells are not —
+SciFact 1 h 47 m, FiQA 6 h 18 m, and ArguAna **derived at 8–14 h** from the 21.4 s and 35.0 s per
+judged query those two measured, against its 1,406 queries. The alternative considered and rejected
+was to measure one corpus per technique and state plainly that the figures are SciFact's; it was
+rejected because this phase has already drifted into that twice and had to correct it both times.
+
+**Price these cells on queries as well as units.** Two separate estimates in this phase have been
+wrong by reasoning from corpus size alone — RealReranked's ~4 m derivation, wrong by 27x, and a
+same-day estimate of ArguAna's reranker cell as "over an hour", wrong by roughly ten. ArguAna's HyDE
+cell cost 2.8x SciFact's on 19% more units because it judges 1,406 queries against 300.
+
 **What this leaves open in the sweep:** hybrid BM25, late chunking and SPLADE under the Real
-protocol; HyDE and reranking on the three datasets each still lacks (FiQA's RealHyde is the cheapest
-of them — its chunked corpus is already embedded and its hypothetical cache exists); every vector
-store through the SciFact parity leg; local search's yes/no abstention; and `refine`'s caveat above.
+protocol, three corpora each; reranking's ArguAna cell (running 2026-09-02) and TREC-COVID's, the
+latter the most expensive in the suite; every vector store through the SciFact parity leg; local
+search's yes/no abstention; and `refine`'s caveat above. **HyDE is finished on every corpus where it
+can be measured** — TREC-COVID is not unscheduled but unmeasurable at any budget, because nobody has
+generated its hypotheticals, and adding it means a paid generation run that has never been costed.
 
 ### Phase 6.2.2: Requested Features [status: complete 2026-08-16 — #252 built and exercised; the phase stays open in spirit for any further request filed before the tag]
 **Goal:** the feature requests reported against the shipped packages, built and exercised to this

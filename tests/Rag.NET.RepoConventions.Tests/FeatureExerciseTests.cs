@@ -42,7 +42,7 @@ public sealed partial class FeatureExerciseTests
     private const string DoneStatusMarker = "**Status:** ✅ Done";
     private const string ExercisedMarker = "**Exercised by:**";
 
-    /// <summary>The 51 Done sections today (a heading with several Done lines, like SaaS Connectors, is one). Far fewer means the parse lost the file's shape.</summary>
+    /// <summary>The 60 Done sections today (a heading with several Done lines, like SaaS Connectors, is one). Far fewer means the parse lost the file's shape. Was 51 until 2026-09-03, when nine sections written as `**Status:** Delivered` were normalised to the marker this guard matches — they had been outside it entirely.</summary>
     private const int FewestPlausibleDoneSections = 45;
 
     private static readonly string[] Kinds = ["benchmark", "container", "test", "recorded", "declared"];
@@ -56,6 +56,9 @@ public sealed partial class FeatureExerciseTests
     private static readonly Dictionary<string, string> SectionsAwaitingExercise = new(StringComparer.Ordinal)
     {
         // ── 6.2.1 Retrieval & Answer Sweep ──────────────────────────────────────────────────
+        ["Sliding Window Chunking with Overlap"] = "6.2 — a real document through TokenAwareChunkingStrategy at a window and overlap a user would set; delivered and normalised from `Delivered` on 2026-09-03, which is when it first became visible to this guard",
+        ["Multi-Index Federation"] = "6.2 — two real stores federated and queried, which nothing exercises today; delivered and normalised from `Delivered` on 2026-09-03",
+        ["Sparse Embedding Retrieval (SPLADE)"] = "6.2.1 — the encoder has unit tests (`OnnxSpladeEncoderTests`, `SpladePoolingTests`); what is unexercised is SPLADE RETRIEVAL, which owes a Real-protocol cell on three corpora like HyDE and reranking now have",
         ["Semantic Chunking (Embedding-Based Boundary Detection)"] = "6.2.1 — under the Real protocol on a BEIR corpus, differenced against RecursiveChunkingStrategy",
         ["Hierarchical Merger (Regex-Driven Tree Chunking)"] = "6.2.1 — under the Real protocol on a corpus with headings",
         ["Domain-Specific Chunking Templates"] = "6.2.1 — one template on a corpus of its kind, or 6.2 with a real document",
@@ -65,11 +68,8 @@ public sealed partial class FeatureExerciseTests
         ["BM25 Synonym Expansion"] = "6.2.1 — the +BM25 cell with and without expansion",
         ["Ensemble / Reciprocal Rank Fusion (RRF)"] = "6.2.1 — the +BM25 hybrid cell composes RRF by hand today; the library's RrfMerger under the same cell",
         ["Deep Research Loop (Sufficiency-Gated Sub-Query Decomposition)"] = "6.2.1 — an answer-harness arm",
-        ["Map-Reduce Synthesis"] = "6.2.1 — an arm of BeirGraphRagAnswerTests against MultiHop-RAG's gold answers",
-        ["Refine (Iterative Synthesis)"] = "6.2.1 — an arm of BeirGraphRagAnswerTests",
         ["LLM Metadata Extraction at Ingest"] = "6.2.1 — a real model over a real corpus, extracted metadata inspected",
         ["Mind-Map Extractor"] = "6.2.1 — over the MultiHop-RAG slice with replayed calls, like GraphRagFunctionsTests",
-        ["Late Chunking"] = "6.2.1 — measured once in Phase 3.7 and never pinned; under the Real protocol",
         ["Conversational Memory Management"] = "6.2.1 — a multi-turn run through a real pipeline",
         ["LLM Fallback Chain"] = "6.2 — a real failure injected in front of a real client",
         ["Rate Limiting & Cost Budgeting"] = "6.2 — a real client under a real budget",

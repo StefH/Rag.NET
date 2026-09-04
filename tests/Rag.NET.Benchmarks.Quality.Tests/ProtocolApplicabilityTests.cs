@@ -57,6 +57,8 @@ public sealed class ProtocolApplicabilityTests
             // above: the enum grew.
             "multihop-rag/RealHyde",
             "multihop-rag/RealReranked",
+            "multihop-rag/RealHybridBm25",
+            "multihop-rag/RealLateChunking",
 
             "scifact/GraphRag",
             "fiqa/GraphRag",
