@@ -1,8 +1,9 @@
 # Session State
 
-**Last updated:** 2026-09-03, session close (four of five sweep techniques measured on three corpora
-each — HyDE, reranking, hybrid BM25, late chunking; SPLADE blocked on a model nobody has provisioned.
-Twelve PRs merged across two days, each verified on `main` by content)
+**Last updated:** 2026-09-05 (THE TECHNIQUE SWEEP IS COMPLETE — five techniques, three corpora each,
+fifteen cells, every figure pinned and reproduced on an idle machine. What remains of the phase is
+four allowlist entries, all LLM-funded; Self-Query is measured and discharged)
+Seventeen PRs merged across three days, each verified on `main` by content)
 **Written by:** `project-orchestration` — first `STATE.md` this project has had. Milestones 1–5 ran
 without one, which is why every session so far re-derived its position from `ROADMAP.md` and
 `MILESTONE.md` and twice acted on a debt that had already closed.
@@ -290,120 +291,32 @@ the extraction cache was replayed refuse-on-miss.
 
 ## Recommended Next Step
 
-**Updated 2026-09-03 at session close. Four of the sweep's five techniques are measured on three
-corpora each. SPLADE is the only one left, and it is blocked on provisioning rather than on effort.**
+
+**2026-09-05 — the technique sweep is COMPLETE. Five techniques, three corpora each, fifteen cells,
+every figure pinned and reproduced.**
 
 | corpus | HyDE | Reranking | Hybrid BM25 | Late chunking | SPLADE |
 | --- | --- | --- | --- | --- | --- |
-| SciFact | +0.03647 | +0.01266 | +0.01880 | −0.02232 | **blocked** |
-| FiQA | −0.00886 | −0.00951 | −0.04185 | +0.02800 | **blocked** |
-| ArguAna | −0.02053 | −0.06938 | +0.03978 | +0.01429 | **blocked** |
+| SciFact | +0.03647 | +0.01266 | +0.01880 | −0.02232 | +0.01276 |
+| FiQA | −0.00886 | −0.00951 | −0.04185 | **+0.02800** | −0.05527 |
+| ArguAna | −0.02053 | −0.06938 | **+0.03978** | +0.01429 | +0.01258 |
 
-**What blocks SPLADE, established 2026-09-03 by looking rather than assuming.** There is no SPLADE
-model anywhere: nothing in `~/.cache/ragnet-beir`, no `RAGNET_ONNX_SPLADE_*` convention beside the
-embed and rerank ones, no mention in `nightly.yml` or the provisioning docs, and no download script.
-`OnnxSpladeEncoderTests` drives an injected `WindowRunner` — a substitute — so **the encoder has
-never run against a real model in this repository.** A Real-protocol SPLADE cell is therefore
-*provision a model, invent the env convention, wire the row, then measure*, and the provisioning half
-has never been costed. That is why its allowlist entry says the retrieval owes a cell while the
-encoder has unit tests.
+**Corpus dominates technique.** SciFact is helped by four of five; FiQA harmed by four of five and
+helped only by late chunking; ArguAna splits on the kind of matching. **No row is a recommendation
+without naming the corpus** — the phase's finding, not a caveat on it.
 
-**So the next step is a scoping decision, not a run.** Either cost the provisioning — which model,
-how large, from where, what env convention, whether the nightly can carry it — or state that the
-sweep ships with four of five techniques measured and SPLADE named as out of scope. Both are
-defensible; drifting into the second by leaving the entry open is not.
+**The ArguAna prediction, written before SPLADE ran, is confirmed at +0.01258.** Both term-matching
+techniques help that corpus; both dense-path techniques harm it. The surviving explanation — that
+the harm is specific to matching a document-shaped or semantically-rescored query against fragments
+— survived a test that could have refuted it.
 
-**What is NOT blocked, if a run is wanted instead:** every technique above has a fourth corpus
-unrun. TREC-COVID's Real leg has never been embedded, so any cell on it pays a cold chunk-and-embed
-of a corpus 33x SciFact's, and HyDE additionally cannot run there at any budget because nobody has
-generated its hypotheticals. That is a paid generation run, not a scheduling decision.
+**SPLADE was blocked on provisioning, not capability.** `Qdrant/Splade_PP_en_v1`, 508 MB, pinned with
+its digest in `docs/reference/ci.md`; the canonical NAVER model publishes no ONNX export at all. The
+shipped encoder had never run against a real model in this repository before 2026-09-04.
 
-**Read the four measured techniques together before scheduling more of them.** Corpus dominates
-technique: SciFact is helped by three and harmed by one, FiQA harmed by three and helped by one,
-ArguAna split. **No technique in this table is a recommendation without naming the corpus**, and that
-is the sweep's result rather than a caveat on it.
-
-**Three standing cautions, each earned this session:**
-
-1. **Never run a cell with `RAGNET_BEIR_LONG_RUNS=1`.** It means every dataset. Use a name or a
-   comma-separated list; the gate has taken lists since #439.
-2. **Confirm every pin with a second run.** Seven cells were confirmed this session and all seven
-   reproduced their nDCG to five decimals while **none** reproduced its timing.
-3. **Do not derive a cell's cost from another cell.** Five derivations in this phase have missed —
-   high, low, by corpus size, by per-query rate, and by cost shape. The one entry that declined to
-   derive needed no correction.
-
----
-
-**The text below predates 2026-09-03 and is kept for its reasoning, not its recommendation.**
-
-
-**Updated 2026-09-02. The answer-engine thread and the HyDE thread are both closed; the next step is
-another Real-protocol technique cell, and they are now safe to run one at a time.**
-
-~~**FiQA `RealHyde` is the cheapest cell left in the sweep.**~~ **Done 2026-09-02: 0.34683 against
-the Real control's 0.35569, −0.00886, reproduced.** It cost 29 m 47 s cold and no money, exactly as
-this entry predicted, and it changed the reading of the SciFact cell rather than confirming it — see
-`ROADMAP.md`'s 6.2.1 block for the corrected framing.
-
-**~~The next step is a decision rather than a run~~ — DECIDED 2026-09-02 by the operator: every
-remaining technique gets three corpora, not one.** Taken on three datasets of evidence. HyDE is
-**+0.03647 on SciFact, −0.00886 on FiQA, −0.02053 on ArguAna** — it helps one and harms two.
-Reranking is +0.01266 and −0.00951 on the two it has. **Two of two techniques measured on more than
-one corpus are corpus-dependent in sign**, and a technique cell pinned on SciFact alone does not
-answer the question these cells exist for.
-
-**ArguAna is the specific warning.** Its parity cell reads −0.00139 — Phase 3.15 recorded it as the
-design's negative control, and it held — so the ablation table this library publishes reports HyDE as
-neutral on that corpus. On the corpus the library actually produces it costs **0.02 nDCG**, a ~15x
-move, and it is the worst-affected of the three. **A prediction that it would stay near zero was
-written down before the run and falsified by it.** Across the three the real/parity magnitude ratio
-is 0.67x, 1.63x and 14.8x. **The "parity predicts the sign" reading of that was RETIRED the same day
-by ArguAna's reranker cell**: across six (technique, corpus) pairs one flips — FiQA reranking is
-+0.01372 at parity and −0.00951 real. Parity predicts neither magnitude nor, reliably, sign.
-
-**The rejected alternative** was to measure one corpus per technique and state plainly that the
-figures are SciFact's. Rejected because this phase has already drifted into that twice and had to
-correct it both times — once when FiQA landed and again when ArguAna did.
-
-**Costs are not uniform and the decision was taken knowing it.** HyDE-shaped cells are cheap: 199.5 s
-on SciFact, 565.0 s on ArguAna, 1,786.9 s on FiQA — 43 minutes for a whole technique, no money.
-Reranker-shaped cells are not: 1 h 47 m and 6 h 18 m measured, and **ArguAna derived at 8–14 h**.
-
-**PRICE THESE CELLS ON QUERIES AS WELL AS UNITS.** Two estimates in this phase have been wrong by
-reasoning from corpus size alone: RealReranked's ~4 m derivation, wrong by 27x, and — the same day,
-in the message immediately after writing that lesson down — an estimate of ArguAna's reranker cell as
-"over an hour", wrong by roughly ten. ArguAna's HyDE cell cost 2.8x SciFact's on 19% more units
-because it judges 1,406 queries against 300. The measured rate is **21.4 s/query on SciFact and
-35.0 s/query on FiQA** for reranker cells.
-
-**~~RUNNING AS OF 2026-09-02, unattended: ArguAna `RealReranked`~~ — MEASURED and PINNED at 0.40621,
-2026-09-02.** Against its control, the ArguAna Real cell's 0.47559, that is **−0.06938: the largest
-technique effect this phase has measured, in either direction, and it is a harm.** Cost 22,976.2 s
-(6 h 23 m) against a derived 8–14 h; it ran at 16.3 s/query, below both rates the derivation
-bracketed it with. Reranking is now complete on three corpora.
-
-**~~STILL RUNNING when this was written: the confirmation re-run~~ — FINISHED and AGREED, 2026-09-02.**
-All three metrics identical to five decimals (0.40621 / 0.65505 / 0.32921), now asserting against the
-pin rather than reporting. **Every figure this phase has pinned has reproduced exactly**; four cells,
-four agreements, and none of the four timings reproduced.
-
-**Its cost corrected this phase's warm/cold model for the second time in one day, and the second
-correction was mine too.** Warm 13,385.3 s (3 h 43 m) against cold 22,976.2 s is **1.72x**:
-
-- The afternoon's reading was **11.6–18x**, generalised from three HyDE cells.
-- The evening's correction to it was **~1.0x for reranker cells**, reasoned from "a cross-encoder has
-  nothing to cache", and written into `STATE.md` and PR #446 as guidance.
-- The measurement is **1.72x**. Both readings were wrong in the same way: they treated the ratio as a
-  property of the **suite**. It is a property of each cell's **mix** — the share of its cost that is
-  page-cacheable I/O against the share that is compute. HyDE cells are retrieval-only, so nearly all
-  of their cost caches away. This cell's dense-retrieval side caches and its cross-encoder inference
-  does not, and 1.72x is where that lands.
-
-**So: predict a cell's warm cost from its composition, or do not predict it.** Confirming a reranker
-pin costs about 58% of taking it, not 100% and not 6%. The three cost predictions this phase made
-about reranker cells — "over an hour", "8–14 h", "the full 6 h 23 m again" — missed low, high, and
-high again. **Measure these cells; do not derive them.**
+**Measured on an idle machine, deliberately.** All three cells in 2 h 59 m; a first attempt took ~80
+minutes for SciFact alone under load. **The per-dataset `elapsed` lines understate these cells** —
+encoding happens before the harness's stopwatch starts.
 
 **2026-09-03, fifth change — late chunking measured on three corpora, and it found a shipped defect
 on the way.**
@@ -589,10 +502,188 @@ store through the SciFact parity leg; local search's yes/no abstention, still un
 `refine`'s −0.1055, whose caveat MapReduce turned into a live question rather than a hedge. The exit
 condition also wants every 6.0 *plan* row pinned and the guards' allowlist empty.
 
-**6.1 remains the milestone's only blocker engineering cannot clear** — 18 cassettes, blocked on
+**The self-query pilot ran against a real model on 2026-09-05, and it cost about a hundredth of a
+cent.** Six queries, six calls; 5 produced a filter and all 5 named the query's own corpus. Both
+mechanism gates held, and a replay run afterwards returned 6 cache hits and 0 misses, so the
+pay-once-replay-free pattern is proven for this feature rather than assumed. It publishes NO
+accuracy figure — six queries cannot support one, and RAPTOR's pilot headline reversed at full
+scale.
+
+**Two corrections it forced, both of mine.**
+
+1. **#467 claimed the funded self-query run "would have crashed on ordinary replies"** because an
+   object-shaped `filters` is "what a schema-free prompt most often gets back". The crash is real
+   and the fix is right, but that frequency claim was speculation and the first evidence
+   contradicts it: **all six real replies used the correct array shape.** The one that produced no
+   filter returned an empty array, not a malformed one. Nothing so far validates the fix, because
+   no reply took the crashing path. Asserting a frequency without evidence is the same habit that
+   mispriced two runs in this phase.
+2. **The pilot's own cache-empty gate reported a full cache as empty.** `GraphExtractionCache`
+   SHARDS entries into subdirectories by key prefix, and the first draft enumerated the top level
+   only — the exact hazard that file's own documentation warns about. Six entries on disk, and the
+   replay run skipped saying "nothing to replay". Fixed to enumerate recursively.
+
+**And a finding about the shipped behaviour, which reframes what this entry can claim.**
+`SelfQueryBehavior` writes its filter into `RetrievalOptions.Filter`, an
+`ISpecification<SearchResult>` that `FilterBehavior` applies as `results.Where(...)` AFTER
+retrieval — with no over-fetch and no backfill. It never writes `MetadataFilter`, the field
+`InMemoryVectorStore` pre-filters on. **So self-query narrows a page of results; it does not scope
+the search.** On a two-corpus store a query asking for ten gets ten, discards the foreign ones and
+returns fewer. The tag-filtered cell's 0.67742 came from a pre-filter and is therefore not a target
+this path can reach, which is worth knowing before the full run is designed around it.
+
+**Self-Query is measured and discharged (2026-09-05), and its figure is not what I predicted.**
+300 judged queries, 300 model calls, ~$0.01; a replay run returned 300 cache hits, 0 misses and an
+identical figure, so the pin is confirmed. **nDCG@10 0.68247** — against **0.67742** for the same
+two-corpus store filtered by hand and **0.67065** unfiltered.
+
+**I predicted it could not reach 0.67742 and it beat it.** The reasoning was that `FilterBehavior`
+applies self-query's filter as `results.Where(...)` after retrieval with no backfill, so the page
+can only shrink. That part is true — 4,496 hits were discarded across 300 queries. The error was
+treating the filter as the whole technique. `SelfQueryBehavior` also REWRITES the query, and the
+pipeline embeds the rewrite; a filter can only remove, so with the same query vector the
+post-filtered page is a prefix of the pre-filtered ranking and cannot score higher. **The rewrite is
+the only mechanism that can explain +0.00505, and the cell measures rewrite and filter together.**
+
+That is also why the row drives `AddRagNet` rather than a hand-composed chain. The first draft
+composed generate → search → `Where` by hand and could not apply the rewrite at all, because
+`EmbeddingTextOverride` is `internal` to Rag.NET. It would have measured the filter alone, produced
+a LOWER number, and carried the technique's name — the same class of error as the HyDE and RRF
+harness gaps this phase has been closing.
+
+**The post-filter's structural cost is real and this harness cannot see it.** `BeirHarness:736` sets
+`TopK = (Cutoff + …) × maxUnitsPerDocument`, which is 410 deep for a cutoff of 10, so ~15 discards
+per query never approach the cutoff. A caller retrieving at `TopK` 10 would see the shrinkage. The
+pointer says so rather than letting the figure read as a clean endorsement.
+
+**6.1 remains the milestone's only blocker engineering cannot clear****6.1 remains the milestone's only blocker engineering cannot clear** — 18 cassettes, blocked on
 accounts rather than effort, and gating v1.0 by the operator's 2026-08-20 decision.
 
 ---
+
+**2026-09-05, second change — three more allowlist entries discharged, `SectionsAwaitingExercise`
+41 → 38, and only ONE of the three needed new code.** The pattern from the 2026-09-04 audit held:
+entries drift from what the repository already contains.
+
+**BM25 Synonym Expansion needed nothing built.** `InMemoryBm25IndexSynonymTests` already drives the
+real index with and without a `SynonymMap` — "Kubernetes" indexed and retrieved by "k8s", a
+three-term group matching on all forms, a runtime addition taking effect, and
+`Search_NoSynonymMap_ExistingBehaviourUnchanged` pinning the without-expansion case returning
+nothing. That **is** the with-and-without pair the entry asked for, at the mechanism level.
+
+**Hierarchical Merger and Domain-Specific Templates needed one new test between them.**
+`RealPaperExerciseTests` runs a real markdown paper through the real `MarkdownDocumentParser` into
+both strategies. **The parser is not re-implemented**, which is the whole point: both strategies had
+unit tests and sat on the allowlist anyway, because those tests hand-build their `DocumentSection`
+inputs and so cannot catch a disagreement between strategy and parser about what a heading is.
+Mutation-checked — stripping the `##` markers fails both.
+
+**All three pointers state what they do NOT claim.** None carries a retrieval-quality figure. The
+entries wanted Real-protocol cells; **no BEIR corpus has headings** (SciFact documents are a title
+and an abstract, checked against the corpus rather than assumed) and `SynonymMap` ships empty, so a
+synonym cell would have measured whichever vocabulary its author invented. Both entries offered a
+second route and both took it. **Whether heading-aware chunking or synonym expansion helps retrieval
+is unmeasured and says so in the pointer**, because a mechanism test and a quality figure are not
+interchangeable.
+
+**Eight entries remain**, and the shape is now: five needing a paid model under one funding
+decision, one compute-only cell (Tag-Based Retrieval Filtering — a filtered parity leg, needing a
+decision about what tags), and two operator decisions (Time-Weighted's "declared" route, and
+Ensemble/RRF's swap to the library's `RrfMerger`).
+
+**A correction to the 2026-09-04 audit, which called four of these "cheap runs".** Two were not runs
+at all: Hierarchical Merger's Real-protocol framing is unsatisfiable on any corpus here, and
+Domain-Specific Templates keys on the same absent headings. The audit costed them by reading the
+entries rather than checking them against the corpus — better than guessing and still one layer
+short.
+
+**What is left in this phase, and it is no longer measurement of techniques.** The exit condition
+has three clauses: the pipeline-parity test (met), the package allowlist (no 6.2.1 entries remain),
+and every row 6.0 classified as *plan* carrying its pointer and its pin. Only the third is open, and
+it is **five `SectionsAwaitingExercise` entries** — thirteen at the 2026-09-04 audit, which found
+two stale rather than owed, less the three #462 discharged, Ensemble/RRF, SPLADE, Time-Weighted and
+Tag-Based. **All five that remain need a paid model, so the phase's remaining work is one decision
+rather than a queue.**
+
+**Time-Weighted took the sanctioned `declared` route on the operator's 2026-09-05 call**, and
+checking it went one layer deeper than the entry did. "BEIR carries no timestamps" is true, but
+"BEIR carries no metadata" would have been false: SciFact, FiQA and ArguAna ship `metadata: {}`
+while TREC-COVID ships `url` and `pubmed_id`. Neither is a date, so the declaration holds — but
+resolving those PubMed ids to publication dates would make a pinned figure depend on a third-party
+service, which is the reason to decline rather than an oversight, and the pointer says so.
+
+**SPLADE was discharged by writing one line, and finding it was the useful part.** The dictionary
+held eight entries while the prose said seven, and the eighth was not an arithmetic slip: #461
+measured SPLADE retrieval on three corpora and pinned it — exactly what the entry asked for — but no
+pointer was ever added to `features.md`, so the entry stayed and the guard stayed green on it. **The
+guard cannot see that shape.** It checks that an entry has no pointer and that a pointer names a
+real class; an entry whose work is DONE but unpointed satisfies both and is indistinguishable from
+one that is genuinely owed. Only reconciling the count against the dictionary surfaced it. Worth
+re-running that reconciliation after any phase that discharges several entries at once.
+
+**They are not seven equal units, which is the point of the audit:**
+
+- **Five need a paid model** — Self-Query, LLM Metadata Extraction, Deep Research Loop, Mind-Map
+  Extractor, Conversational Memory. All drive an `IChatClient`. `CachedGraphRagClient` plus the
+  on-disk `graph-extractions`, `graph-reports` and `graph-answers` caches are how the GraphRAG work
+  paid once and replayed free; the same shape applies. **One funding decision covers all five.**
+- **The compute-only group is empty.** It was four. #462 discharged three, two of which turned out
+  not to be runs at all, and Tag-Based Retrieval Filtering was measured on 2026-09-05.
+- **Time-Weighted is closed** — declared on 2026-09-05, the route the entry itself sanctioned. It
+  drops the count without measuring anything, which is what declaring means and what the pointer
+  admits: whether recency weighting helps retrieval on a real dated corpus stays unverified.
+
+**Ensemble/RRF is discharged (2026-09-05), and it found something.** `HybridFusionParityTests`
+retrieves through a real `IRagPipeline` with `UseHybridSearch` set, so `EnsembleBehavior` fuses a
+dense and a lexical arm through the library's own `RrfMerger`, and holds that to the `+BM25` cell's
+hand-composed fusion. The two agreed on k and on the 1-based rank formula, and **disagreed on the
+weights**: the row weighted each leg 1.0 while `EnsembleOptions` defaults `DenseWeight` and
+`Bm25Weight` to 0.5 each, so every harness score was exactly twice the library's. That is a uniform
+factor on an RRF sum — it reorders nothing, nDCG cannot see it, and the SciFact cell reproduced its
+pinned 0.69622 after the row was brought onto the library's default. It mattered anyway: it is
+visible to anything reading the fused score, `MinScore` first, and removing it let the test assert
+score equality outright instead of equality-up-to-a-factor.
+
+**The order-only version of that test was worthless and the mutation check is what said so.**
+Changing the row's rank constant from 60 to 10 left it green — RRF rankings barely move with k. Only
+after the score assertion went in did both that mutation and a 0-based-rank mutation fail. This is
+the fourth guard on this branch that looked right and proved nothing until it was mutated; the
+pattern is now consistent enough to treat mutation as part of writing the guard, not a review step.
+
+**Tag-Based is measured, and the design choice WAS the job.** BEIR chunks carry no tags, so
+filtering on an invented vocabulary would have measured the invention — the trap that emptied three
+of the other four cheap entries. The operator chose the corpus a document came from, which is a fact
+about the data rather than a choice, and it turned the cell from a score into a TARGET: SciFact
+filtered out of a SciFact+FiQA store must reproduce SciFact's standalone figure. **It did, exactly**
+— 0.67742 to five decimals, 0 leaked hits over 123,000, against a prediction pinned before the run.
+The unfiltered control on the same store scores 0.67065, so the filter was doing work rather than
+sitting over a corpus that never competed.
+
+**Two things that run surfaced, neither of them about tagging.** The 26x gap between its two runs
+(702.7 s then 26.9 s, identical figures, 0 embedding-cache misses both times) is the OS page cache
+over a 141k-unit read — the same artefact that produced three false findings earlier this phase, and
+why the cost entry says to budget the cold number. And `SummariseUnits` prints a document count
+larger than the dataset's and a NEGATIVE "contributed nothing" figure here, because it assumes
+indexed units come from the dataset under measurement. Harmless — the metrics come from qrels — but
+a reader meeting "-57587" should know it is a one-corpus assumption meeting a two-corpus store.
+
+**6.1 remains the milestone's only blocker engineering cannot clear** — 18 cassettes, blocked on
+accounts, gating v1.0 by the operator's 2026-08-20 decision.
+
+**Three standing cautions, each earned rather than inherited:**
+
+1. **Never run a cell with `RAGNET_BEIR_LONG_RUNS=1`.** It means every dataset. Use a name or a
+   comma-separated list; the gate has taken lists since #439.
+2. **Confirm every pin with a second run.** Ten cells have been confirmed across this phase and all
+   ten reproduced their nDCG to five decimals while **none** reproduced its timing.
+3. **Do not derive a cell's cost from another cell.** Five derivations here have missed — high, low,
+   by corpus size, by per-query rate, by cost shape. Both entries that declined to derive needed no
+   correction.
+
+**And a fourth, earned four times this week:** a benchmark timing taken on a loaded machine is not a
+figure this table should carry. SPLADE's SciFact cell read ~80 minutes under load and all three
+cells fit in 2 h 59 m idle. The nDCG never moved.
+
 
 **The text below predates 2026-09-02 and is kept for its reasoning, not its recommendation.** Its
 "next step is `MapReduceAnswerEngine`" was carried out: the defect was fixed in #430, the arms were

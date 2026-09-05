@@ -441,6 +441,43 @@ RAGNET_BEIR_LONG_RUNS=1 dotnet test tests/Rag.NET.Benchmarks.Quality.Integration
   --filter "DisplayName~UnderCrossEncoderRerank&DisplayName~scifact"
 ```
 
+**The SPLADE cell needs a second model, which the nightly also does not provision** — for the reason
+Phase 4.1 removed the reranker's provisioning, and more so: this export is **508 MB** against the
+cross-encoder's 88, and every reader sits behind `RAGNET_BEIR_LONG_RUNS`, which that job never sets.
+Provisioning an input no unattended job consumes is the inert-path shape this repository keeps
+deleting.
+
+**The canonical SPLADE model cannot be used here.** `naver/splade-cocondenser-ensembledistil`
+publishes no ONNX export at all — only `pytorch_model.bin` — and converting it locally would produce
+an artefact with no upstream digest to pin, which is precisely what these fenced procedures exist to
+avoid. `Qdrant/Splade_PP_en_v1` publishes `model.onnx` and `vocab.txt` at its root and is pinned
+below. If a checksum fails, do **not** edit the checksum to match — check whether upstream
+republished the revision first.
+
+```bash
+# Qdrant/Splade_PP_en_v1, pinned (recorded 2026-09-04: the revision is main's sha from the HF API;
+# both SHA-256s computed locally after download). The vocab digest is byte-identical to the
+# cross-encoder's above — expected, and worth checking rather than assuming: all three models
+# tokenize with the standard BERT uncased WordPiece vocabulary.
+revision=efcd182bc7eb351e81a9445752d4388c2bab500b
+dir="$RAGNET_BEIR_CACHE/models/Splade_PP_en_v1"
+mkdir -p "$dir"
+curl -fsSL -o "$dir/model.onnx" "https://huggingface.co/Qdrant/Splade_PP_en_v1/resolve/$revision/model.onnx"
+curl -fsSL -o "$dir/vocab.txt"  "https://huggingface.co/Qdrant/Splade_PP_en_v1/resolve/$revision/vocab.txt"
+echo "65adbad0d7e1bc882c867d534821d52e60d6f666a91662be3f58457d08d25bf3  $dir/model.onnx" | sha256sum -c -
+echo "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3  $dir/vocab.txt"  | sha256sum -c -
+
+RAGNET_ONNX_SPLADE_MODEL="$dir/model.onnx" RAGNET_ONNX_SPLADE_VOCAB="$dir/vocab.txt" \
+RAGNET_BEIR_LONG_RUNS=scifact \
+  tests/Rag.NET.Benchmarks.Quality.IntegrationTests/bin/Release/net10.0/Rag.NET.Benchmarks.Quality.IntegrationTests.exe \
+  -method '*NdcgAt10_UnderSplade_*' -showLiveOutput
+```
+
+**Run it on a quiet machine.** The cell encodes every unit through the MLM before it retrieves
+anything — 20,155 units on SciFact — and that dominates the run. A first attempt on 2026-09-04 took
+roughly 80 minutes with a browser and an editor active, which is why no cost is recorded for it yet:
+a benchmark timing taken under load is not a figure this table should carry.
+
 One more opt-in gate lives in the same project and costs seconds, not hours:
 `RAGNET_IDENTITY_BATTERY_DIR` points `IdentityBatteryDumpTests` at the directory
 `identity_check.py --write-battery` filled with the library comparison's embedder-identity battery
@@ -482,7 +519,48 @@ RAGNET_BEIR_LONG_RUNS=1 dotnet test tests/Rag.NET.Benchmarks.Quality.Integration
   --filter "FullyQualifiedName~BeirGraphRagAnswerTests"
 ```
 
-The split keeps the *parity* number under nightly regression guard on two datasets, which is the
+### Self-query, `RAGNET_SELF_QUERY_GENERATE`
+
+Fills the `self-query` cache with real model replies. Requires `OPENROUTER_API_KEY`; no workflow
+sets it and the nightly never spends. Absent the variable the pilot replays from cache, and with an
+empty cache it skips rather than reaching the network — `CachedGraphRagClient` is constructed with
+no inner client in that mode, so a miss throws instead of silently costing money.
+
+The pilot is six queries and costs about a hundredth of a cent.
+
+```bash
+# Pilot: six queries, generating what the cache lacks.
+RAGNET_SELF_QUERY_GENERATE=1   tests/Rag.NET.Benchmarks.Quality.IntegrationTests/bin/Release/net10.0/Rag.NET.Benchmarks.Quality.IntegrationTests.exe   -class Rag.NET.Benchmarks.Quality.IntegrationTests.BeirSelfQueryPilotTests
+
+# Replay, which is what a re-run should do: drop the variable and the same six come from cache.
+tests/Rag.NET.Benchmarks.Quality.IntegrationTests/bin/Release/net10.0/Rag.NET.Benchmarks.Quality.IntegrationTests.exe   -class Rag.NET.Benchmarks.Quality.IntegrationTests.BeirSelfQueryPilotTests
+```
+
+**These invoke the built executable rather than `dotnet test --filter`**, which the xunit v3
+in-process runner silently discards — a filtered `dotnet test` runs the whole project and reports
+success, which reads identically to a filtered run that passed. The `-class` argument is honoured.
+
+### Metadata extraction, `RAGNET_METADATA_EXTRACTION_GENERATE`
+
+Fills the `metadata-extraction` cache with real model replies. Requires `OPENROUTER_API_KEY`; no
+workflow sets it and the nightly never spends. Absent the variable the pilot replays from cache, and
+with an empty cache it skips rather than reaching the network.
+
+The pilot is 120 chunks — 60 from SciFact and 60 from FiQA — and costs about a cent. The full run
+over SciFact's 20,155 Real-protocol units is priced at roughly $4.63 by `LlmCallShapeTests`.
+
+```bash
+# Pilot: 120 chunks, generating what the cache lacks.
+RAGNET_METADATA_EXTRACTION_GENERATE=1   tests/Rag.NET.Benchmarks.Quality.IntegrationTests/bin/Release/net10.0/Rag.NET.Benchmarks.Quality.IntegrationTests.exe   -class Rag.NET.Benchmarks.Quality.IntegrationTests.BeirMetadataExtractionPilotTests
+
+# Replay: drop the variable and the same 120 come from cache, free.
+tests/Rag.NET.Benchmarks.Quality.IntegrationTests/bin/Release/net10.0/Rag.NET.Benchmarks.Quality.IntegrationTests.exe   -class Rag.NET.Benchmarks.Quality.IntegrationTests.BeirMetadataExtractionPilotTests
+```
+
+As with the self-query gate above, these invoke the built executable with `-class` rather than
+`dotnet test --filter`, which the xunit v3 in-process runner silently discards.
+
+The split keeps the *parity* number under nightly regression guard on two datasets, which is theThe split keeps the *parity* number under nightly regression guard on two datasets, which is theThe split keeps the *parity* number under nightly regression guard on two datasets, which is the
 number the milestone exists to protect and the only one that can be checked against a published
 figure at all. **What it gives up is stated rather than buried:** no chunk-to-document max-pooling
 runs against a corpus in the nightly any more. The cheap chunk-shape checks still run there and

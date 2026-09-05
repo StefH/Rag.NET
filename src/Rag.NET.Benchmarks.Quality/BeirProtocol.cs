@@ -251,6 +251,83 @@ public enum BeirProtocol
     RealLateChunking,
 
     /// <summary>
+    /// Learned sparse retrieval over <see cref="Real"/>'s units: every unit and every query encoded
+    /// by <c>OnnxSpladeEncoder</c>, scored by sparse dot product with no dense arm at all.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Its control is <see cref="Real"/> on the same dataset</b>, and the comparison is blunter
+    /// than the other Real cells'. <see cref="RealHyde"/> changes the query vector,
+    /// <see cref="RealReranked"/> rescores dense candidates, <see cref="RealHybridBm25"/> fuses a
+    /// lexical arm beside the dense one — all three keep dense retrieval in the path. <b>This
+    /// replaces the ranker entirely.</b> Read its figure as "what a learned sparse retriever scores
+    /// on this corpus", not as "what SPLADE adds to the pipeline".
+    /// </para>
+    /// <para>
+    /// <b>It needs a model the other cells do not, and that is why it went unmeasured for so
+    /// long.</b> Until 2026-09-04 there was no SPLADE model anywhere in this repository: no export
+    /// in the cache, no <c>RAGNET_ONNX_SPLADE_*</c> convention beside the embed and rerank ones, no
+    /// download procedure, and <c>OnnxSpladeEncoderTests</c> driving an injected window runner
+    /// rather than a real session. The encoder had never run against a real model here. The
+    /// canonical <c>naver/splade-cocondenser-ensembledistil</c> publishes no ONNX export at all, so
+    /// the pinned artefact is <c>Qdrant/Splade_PP_en_v1</c> — 508 MB, against the reranker's 88 —
+    /// provisioned by the fenced procedure in <c>docs/reference/ci.md</c> and deliberately not by
+    /// the nightly, for the reason Phase 4.1 removed the reranker from it: an input no unattended
+    /// job consumes is provisioning nobody reads.
+    /// </para>
+    /// <para>Costs no model calls; the encoder is a local ONNX session.</para>
+    /// </remarks>
+    RealSplade,
+
+    /// <summary>
+    /// Retrieval over a store holding <b>two</b> corpora, restricted back to one of them by a
+    /// metadata tag naming the corpus each chunk came from.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>It is the only protocol here that changes the STORE rather than the ranker.</b> Every
+    /// other one indexes a single corpus and varies how it is cut, fused or rescored. This one
+    /// leaves dense retrieval exactly as <see cref="Real"/> runs it and indexes SciFact together
+    /// with FiQA, tagging every unit with its corpus, so the question is not how well the ranker
+    /// scores but whether the filter restores what a single-corpus store would have returned.
+    /// </para>
+    /// <para>
+    /// <b>Which is why it has a target rather than a figure.</b> The filtered run must reproduce
+    /// SciFact's standalone <see cref="Real"/> number to five decimals. A tag-filtering cell built
+    /// the obvious way — invent tags, filter on them, report the score — would have measured
+    /// whichever vocabulary its author invented, since no BEIR corpus carries tags. The corpus a
+    /// document came from is a fact about the data rather than an invention, and it turns the cell
+    /// into a check that can fail.
+    /// </para>
+    /// <para>
+    /// Costs no model calls, but it is the most expensive cell here to SET UP: it embeds FiQA's
+    /// 57,638 documents alongside SciFact's 5,183 to build one store, against every other cell's
+    /// single corpus.
+    /// </para>
+    /// </remarks>
+    RealTagFiltered,
+
+    /// <summary>
+    /// Retrieval whose metadata filter is written by a real model rather than by the harness,
+    /// over the same two-corpus store <see cref="RealTagFiltered"/> uses.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The pair is the point.</b> <see cref="RealTagFiltered"/> applies the corpus filter by
+    /// hand through <c>MetadataFilter</c>, which the store applies while scoring, and reproduces
+    /// the single-corpus figure exactly. This one asks a model to write that same filter and lets
+    /// the pipeline apply it where the pipeline actually does — <c>RetrievalOptions.Filter</c>,
+    /// which <c>FilterBehavior</c> runs as <c>results.Where(...)</c> AFTER the search. Two things
+    /// therefore separate the figures: whether the model picked the right corpus, and what the
+    /// post-retrieval wiring costs even when it did.
+    /// </para>
+    /// <para>
+    /// Costs one model call per query, cached on disk, so a re-run replays free.
+    /// </para>
+    /// </remarks>
+    RealSelfQuery,
+
+    /// <summary>
     /// The graph path: entities and relations extracted from the corpus into a graph, that graph
     /// partitioned into communities, and retrieval running over the result — local search out from
     /// the entities a query names, global search over the community summaries. <b>Applies to

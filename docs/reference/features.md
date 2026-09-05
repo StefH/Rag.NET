@@ -58,6 +58,7 @@ services.AddRagNet(rag => rag
 **Why:** The single biggest quality lever for retrieval. Fixed-size and recursive splitting regularly break mid-paragraph or mid-argument. Semantic chunking ensures each chunk is a self-contained unit of meaning, directly improving retrieval precision.
 
 **Status:** ✅ Done
+**Exercised by:** benchmark — the `SemanticChunking` cell in `BeirAblationTests`, measured on all four BEIR corpora in Phase 6.2.1 and pinned in `BeirReproduction`. `SemanticChunkingStrategy` at its defaults (breakpoint percentile 0.25, minimum 100 characters), against each dataset's **parity** control — same corpus, embedder and retrieval, differing only in where the boundaries fall. SciFact **0.64551** against 0.64593 (−0.00042, a wash), FiQA **0.34509** against 0.37086, ArguAna **0.47502** against 0.50432, TREC-COVID **0.52196**. **Naming the control is load-bearing here and this cell is why the phase learned to do it**: the same SciFact figure reads as a 0.00042 wash against parity and a 0.032 regression against Real, so a cell without a named control is not a measurement. The run asserts the chunker actually split — a corpus where semantic chunking is a no-op fails loudly rather than reporting the control's number under another name.
 
 ---
 
@@ -69,6 +70,7 @@ Configurable chunking stage driven by user-supplied regex patterns for each head
 **Why:** Many enterprise document types (legal codes, technical specs, internal wikis) use non-standard heading structures. Regex-driven depth chunking lets operators tune chunking without writing a custom `IChunker`.
 
 **Status:** ✅ Done
+**Exercised by:** test — `RealPaperExerciseTests` runs a real markdown paper through the real `MarkdownDocumentParser` and into `HierarchicalMergerChunkingStrategy`, asserting the heading subtrees drive the split and that subsection content lands with its parent rather than being orphaned. **The parser is not re-implemented**, which is the point: this strategy already had unit tests, and they hand-build their `DocumentSection` inputs, so they cannot catch a disagreement between the strategy and the parser about what a heading is. **The allowlist entry asked for the Real protocol over a corpus with headings, and no BEIR corpus has any** — SciFact documents are a title and an abstract, checked against the corpus rather than assumed — so the entry takes its other route. Mutation-checked: stripping the `##` markers from the document fails both tests. **Whether heading-aware chunking helps retrieval remains unmeasured**, and that is a different claim from this one.
 
 ---
 
@@ -122,6 +124,7 @@ Split C# source files into semantically meaningful chunks using Roslyn. Each chu
 
 ### Domain-Specific Chunking Templates
 **Status:** ✅ Done
+**Exercised by:** test — `RealPaperExerciseTests` runs a real markdown paper through the real `MarkdownDocumentParser` and into `AcademicPaperChunkingStrategy`, asserting its two documented behaviours on a document it did not choose: the abstract is kept and carries `section_type=abstract`, and the references are dropped. This is the entry's "or 6.2 with a real document" route; the other route wanted a corpus of the template's kind, and **no BEIR corpus carries the headings this template keys on**. Mutation-checked: stripping the `##` markers fails it. The other three templates — Book, Legal, Email — remain covered by unit tests only, which this pointer does not claim otherwise about.
 **Package:** `Rag.NET.Chunking.Templates`
 
 Pre-built chunking templates for common vertical document types:
@@ -172,6 +175,8 @@ Use an LLM to translate a natural-language question into a vector search query p
 
 **Status:** ✅ Done
 
+**Exercised by:** benchmark — the `+self-query` cell in `BeirSelfQueryTests`, driven by `SelfQueryAblationRow` through a real `AddRagNet` pipeline, measured in Phase 6.2.1 and pinned in `BeirReproduction`. A real `gpt-4o-mini` writes a corpus filter for each of SciFact's 300 judged queries against the SciFact+FiQA store (141,391 units); 300 calls, cached, and a replay run reproduces the figure with 0 misses. **nDCG@10 0.68247**, Recall@10 0.81656 — against 0.67742 for the same store hand-filtered and 0.67065 unfiltered. **Read the gain as the query REWRITE, not the filter.** `SelfQueryBehavior` rewrites the query text as well as producing a filter, and a filter can only remove: with the same query vector the post-filtered page is a prefix of the pre-filtered ranking and cannot score higher. **What this does NOT establish:** the filter is applied by `FilterBehavior` as `results.Where(...)` after retrieval, with no over-fetch and no backfill, so it shrinks the page rather than scoping the search — 4,496 hits were discarded across 300 queries and it cost nothing here only because the harness searches 410 deep for pooling. A caller retrieving at `TopK` 10 would see that shrinkage; this cell structurally cannot. The run is opt-in behind `RAGNET_BEIR_LONG_RUNS` and `RAGNET_SELF_QUERY_GENERATE`.
+
 ---
 
 ### Tag-Based Retrieval Filtering
@@ -182,6 +187,8 @@ Maintain a "tag knowledge base" of content-tag pairs. At query time, match the u
 **Why:** Lightweight scoping alternative to self-query — useful when documents carry human-assigned categories (product names, departments, issue types) without requiring an LLM call.
 
 **Status:** ✅ Done
+
+**Exercised by:** benchmark — the `+tag filter` cell in `BeirTagFilteredTests`, driven by `TagFilteredAblationRow`, measured in Phase 6.2.1 and pinned in `BeirReproduction`. SciFact and FiQA are indexed into ONE store (141,391 units: 20,155 tagged `scifact`, 121,236 tagged `fiqa`) and dense retrieval is restricted back to SciFact by a `MetadataFilter`. **The cell has a target rather than a score**: the filtered run must reproduce SciFact's standalone Real dense figure, and it does — 0.67742 to five decimals, with 0 leaked and 0 untagged hits across 123,000 hits over 300 queries. The same store measured UNFILTERED scores 0.67065, so the filter is demonstrably doing work rather than being a no-op. **What it does NOT establish:** `InMemoryVectorStore` filters before scoring, so this covers the pre-filtering in-memory dense path only — not stores that filter after ranking, and not the BM25 arm of client-side hybrid, which is a separate concern. The tag is the corpus a document came from, chosen because no BEIR corpus carries tags and any invented vocabulary would have been the thing measured. The run is opt-in behind `RAGNET_BEIR_LONG_RUNS`.
 
 ---
 
@@ -194,6 +201,8 @@ Combine semantic similarity score with a recency decay factor. Fresher documents
 
 **Status:** ✅ Done
 
+**Exercised by:** declared — no corpus this repository benchmarks against carries a timestamp, so a time-decay retrieval leg would measure whichever dates its author invented rather than the retriever. Checked against the provisioned corpora rather than assumed: SciFact, FiQA and ArguAna ship `metadata: {}`, and TREC-COVID ships `url` and `pubmed_id` — real metadata, but not a date. Resolving those PubMed ids to publication dates would make a pinned figure depend on a third-party service the harness has no provisioning path for. **What IS verified:** `TimeWeightedRetrieverTests` covers the decay maths and the metadata resolution around it — decay reducing a score, results re-sorting under it, `updated_at` winning over `created_at`, fallback keys in declaration order, and unparseable or absent timestamps leaving the base score untouched. **What stays unverified:** whether recency weighting helps or harms retrieval quality on a real dated corpus. That needs a dated corpus, not a better test.
+
 ---
 
 ### BM25 Synonym Expansion
@@ -204,6 +213,7 @@ Augment BM25 retrieval with runtime-updatable domain-specific synonym dictionari
 **Why:** Domain terminology mismatches silently reduce BM25 recall in specialised corpora (medical, legal, engineering).
 
 **Status:** ✅ Done
+**Exercised by:** test — `InMemoryBm25IndexSynonymTests` drives the real `InMemoryBm25Index` with and without a `SynonymMap`: a document indexed as "Kubernetes" is retrieved by the query "k8s" and vice versa, a three-term group matches on all three forms, a runtime addition takes effect on the next query, and **`Search_NoSynonymMap_ExistingBehaviourUnchanged` pins the without-expansion case returning nothing** — the with-and-without pair the allowlist entry asked for. `SqliteBm25IndexSynonymTests` covers the persisted index the same way. **This proves the mechanism and deliberately claims no retrieval-quality number.** The entry originally wanted a BEIR ablation cell differencing nDCG with and without expansion; `SynonymMap` ships empty, so such a cell would measure whichever vocabulary its author invented rather than the feature, and no sourced synonym set for scientific abstracts exists here. Whether expansion helps retrieval on a real corpus is a different question and remains unmeasured — stated rather than implied, because a mechanism test and a quality figure are not interchangeable.
 
 **Performance** (BenchmarkDotNet, .NET 10, i9-12900HK, Release):
 
@@ -233,6 +243,8 @@ Combine results from multiple retrievers (e.g., BM25 + dense vector) using Recip
 **Why:** RRF consistently outperforms individual retrievers by combining rank signals.
 
 **Status:** ✅ Done. `EnsembleBehavior` fuses dense/BM25/(sparse) arms client-side with weighted RRF. Since native-hybrid dispatch landed, a store implementing `IHybridSearchable` (Azure AI Search, Weaviate) serves the hybrid call server-side instead **when nothing native fusion cannot express is configured** — supplying `EnsembleOptions`, a non-zero `MinScore`, or an active sparse arm keeps the client-side ensemble. The chosen path is observable via the `retrieval.hybrid.path` activity tag.
+
+**Exercised by:** test — `HybridFusionParityTests` retrieves through a real `IRagPipeline` with `UseHybridSearch` set and an `IBm25Index` registered, so `EnsembleBehavior` fuses a dense and a lexical arm through `RrfMerger`, and holds the result to the fusion the `+BM25` ablation cell composes by hand — the same documents in the same order AND the same scores. The score half is what gives the line its teeth: mutating the row's rank constant from 60 to 10 leaves an order-only comparison green, because RRF rankings barely move with k. What is NOT covered: the native `IHybridSearchable` dispatch path, which bypasses `RrfMerger` entirely and is a store-side concern (`InMemoryVectorStore` does not implement it), and the sparse third arm, which needs a registered sparse generator.
 
 ---
 
@@ -986,6 +998,8 @@ Generate sparse embedding vectors via SPLADE (Sparse Lexical and Expansion Model
 **Why:** SPLADE outperforms BM25 on out-of-vocabulary terms while remaining sparse enough for efficient retrieval. Pairs with dense embeddings for state-of-the-art hybrid search without a separate BM25 index.
 
 **Status:** ✅ Done — delivered for Qdrant + PgVector + Pinecone + in-memory. `OnnxSpladeEncoder` (register with `UseSpladeEncoder(...)`; e.g. an ONNX export of `naver/splade-cocondenser-ensembledistil`) pools MLM logits per chunk/query into a pruned `SparseVector` (`log(1 + ReLU(logit))`, max over tokens, `TopTerms` largest). Ingestion computes sparse vectors automatically (`SparseEmbeddingBehavior`) when the store implements the `ISparseSearchable` capability — `QdrantSparseVectorStore` via `UseQdrant(..., enableSparseVectors: true)` (named sparse vector "splade" on the same points, deterministic point ids, fail-fast on pre-existing dense-only collections), `PgVectorSparseVectorStore` via `UsePgVector(..., enableSparseVectors: true, sparseVocabularySize: 30522)` (a `sparsevec(N)` column on the same `rag_chunks` rows with an `hnsw sparsevec_ip_ops` index, searched by `<#>`; requires pgvector 0.7.0+, fail-fast on both an older extension and a pre-existing column of the wrong dimension; no dense/sparse write-ordering contract, since the dense upsert excludes the sparse column; `OnnxSpladeOptions.TopTerms` must stay ≤ 1000 while the sparse HNSW index exists), `PineconeSparseVectorStore` via `UsePinecone(..., configure: o => o.EnableSparseVectors = true)` (native sparse values on the same records, dotproduct metric enforced fail-fast; the sparse *write* path is verified by construction only — Pinecone Local rejects sparse writes, so it is untested against a live serverless index), or `InMemoryVectorStore` (inverted postings, dot product). Retrieval: `EnsembleBehavior` grows a third arm fused by weighted RRF (`EnsembleOptions.SparseWeight`; `RetrievalOptions.UseSparseSearch` null follows `UseHybridSearch`). Sparse scores are raw dot products on every store, so `SearchOptions.MinScore` is on a different scale there than on the cosine dense path. Degraded-never-broken: sparse failures at ingest or query time log a warning and continue dense/BM25-only.
+
+**Exercised by:** benchmark — the `+splade` cell in `BeirAblationTests`, driven by `SpladeAblationRow`, measured under the Real protocol on three BEIR corpora in Phase 6.2.1 and pinned in `BeirReproduction`: SciFact nDCG@10 0.69018, FiQA 0.30042, ArguAna 0.48817. Real `Qdrant/Splade_PP_en_v1` weights encode both the units and the queries, scored by sparse dot product through `InMemoryVectorStore.StoreSparseAsync`/`SearchSparseAsync`. The cell asserts its own mechanism fired — `AssertExpandedBeyondTheQueryTokens` requires the encoder to emit terms the query did not contain, so a figure cannot be read as SPLADE's unless expansion actually happened. **What it does NOT claim:** this cell REPLACES the ranker rather than varying it — there is no dense arm, so read the figures as "what a learned sparse retriever scores on this corpus", never as "what SPLADE adds to the pipeline". It is also not comparable to published SPLADE numbers, which index a different corpus segmentation. The run is opt-in behind `RAGNET_BEIR_LONG_RUNS` and the SPLADE ONNX environment variables, so it skips in ordinary CI.
 
 ---
 

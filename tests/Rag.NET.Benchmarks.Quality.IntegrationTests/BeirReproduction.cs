@@ -109,6 +109,51 @@ public static class BeirReproduction
             "CPU ONNX Runtime; re-measured 2026-07-31."),
         new(
             "scifact",
+            BeirProtocol.RealSplade,
+            [0.69018],
+            "MEASURED 2026-09-04, re-measured 2026-09-05 on an idle machine and identical to five decimals: nDCG@10 0.69018, Recall@10 0.80844, MRR@10 0.65921 over the 300 judged queries; 20,155 units. **Against its control, the Real cell's 0.67742, this is +0.01276.** The two runs came from a loaded machine and a quiet one and agreed exactly, which is the load-independence of nDCG demonstrated rather than asserted -- only the timings differed. **Read it as what a learned sparse retriever scores on this corpus, not as what SPLADE adds to the pipeline**: this cell has no dense arm at all. " +
+            "Real cell's 0.67742 -- and FAILED its own mechanism guard, through a defect in the " +
+            "guard rather than in the cell: the expansion evidence encoded the query and then " +
+            "encoded the same string again, so it compared the query with itself and could never " +
+            "have passed. The figure is deterministic and expected to reproduce; it is recorded " +
+            "here as an OBSERVATION rather than a pin, because a number from a run whose mechanism " +
+            "assertion did not assert is not evidence the mechanism fired. The re-run has an " +
+            "expectation to check against, which is worth more than an empty entry. **The " +
+            "encoder had never run against a real model in this repository before that date**: " +
+            "encoder had never run against a real model in this repository before that date**: " +
+            "there was no SPLADE export in the cache, no RAGNET_ONNX_SPLADE_* convention, no " +
+            "download procedure, and OnnxSpladeEncoderTests drives an injected window runner. " +
+            "**Its control is the Real cell's 0.67742**, and the comparison is blunter than the " +
+            "other Real cells': this replaces the ranker entirely rather than varying it, so read " +
+            "the figure as what a learned sparse retriever scores on this corpus rather than as " +
+            "what SPLADE adds to the pipeline."),
+        new(
+            "fiqa",
+            BeirProtocol.RealSplade,
+            [0.30042],
+            "MEASURED 2026-09-05 on an idle machine: nDCG@10 0.30042, Recall@10 0.37734, MRR@10 0.35659 over the 648 judged queries; 121,236 units over 57,600 of 57,638 documents. **Against its control, the Real cell's 0.35569, this is −0.05527 — the largest harm any technique has done to any corpus in this phase.** FiQA has now been harmed by HyDE (−0.00886), reranking (−0.00951), hybrid BM25 (−0.04185) and SPLADE (−0.05527), and helped only by late chunking (+0.02800). **The two lexical-side techniques are its two worst results**, which is the opposite of what ArguAna shows and worth carrying into any explanation of either. " +
+            "corpus where the three dense-path techniques all harmed and only late chunking " +
+            "helped, so a sparse retriever with no dense arm is the least predictable of the four " +
+            "cells here."),
+        new(
+            "arguana",
+            BeirProtocol.RealSplade,
+            [0.48817],
+            "MEASURED 2026-09-05 on an idle machine: nDCG@10 0.48817, Recall@10 0.78307, MRR@10 0.39599 over all 1,406 judged queries; 24,003 units. **Against its control, the Real cell's 0.47559, this is +0.01258 — and it CONFIRMS the prediction written into this entry before the run.** The chain was: hybrid BM25 is +0.03978 here, the surviving explanation for HyDE's and reranking's harm is that it is specific to matching a document-shaped or semantically-rescored query against fragments, and SPLADE is learned term matching, so it should land positive too. It does. **A negative would have meant the explanation is about lexical-versus-dense rather than query shape; it is not.** Two independent term-matching techniques now help ArguAna while both dense-path techniques harm it. " +
+            "prediction before it runs, since this phase has twice profited from writing one down: " +
+            "hybrid BM25 is +0.03978 here, the best Real-protocol figure ArguAna has, and the " +
+            "surviving explanation is that its harm is specific to matching a document-shaped or " +
+            "semantically-rescored query against fragments. **SPLADE is term-weighted matching " +
+            "like BM25 but learned, so if that explanation holds it should also land positive.** A " +
+            "negative here would mean the explanation is about lexical-vs-dense rather than about " +
+            "query shape, which is a different claim than the one currently recorded."),
+        new(
+            "trec-covid",
+            BeirProtocol.RealSplade,
+            [],
+            "NOT RUN and not scheduled -- its Real leg has never been embedded."),
+        new(
+            "scifact",
             BeirProtocol.RealLateChunking,
             [0.65510],
             "MEASURED 2026-09-03, Windows 11, .NET 10, CPU ONNX Runtime: nDCG@10 0.65510 over the 300 judged queries; 9,507 units over 5,175 of 5,183 documents, max 9 per document. **Against its control, the Real cell's 0.67742, this is −0.02232 — late chunking makes SciFact worse, and it is the first technique measured here to do so.** HyDE, reranking and hybrid BM25 all help this corpus (+0.03647, +0.01266, +0.01880). **This cell varies BOTH the boundaries and the embedding, which was mis-stated when it was written**: late chunking windows at its own 256 tokens rather than reusing RecursiveChunkingStrategy's, so it produced 9,507 units against the Real cell's 20,155 over the same corpus. The comparison is still the end-to-end one a user faces; no part of it isolates the embedding step, so this figure cannot be read as \"whole-document context is worth −0.022\". **8 documents excluded**, carrying control characters BERT's own reference implementation deletes; one is relevant to a judged query, bounding the distortion at 0.00333 against a ±0.005 band. **The first retrieval-quality figure late chunking has ever had** — the allowlist entry claimed Phase 3.7 measured it, and 3.7 measured the parity dense anchor instead. SUPERSEDED TEXT: NEVER RUN -- Phase 6.2.1 wired this cell and has not measured it. **Late chunking has never had a " +
@@ -180,6 +225,42 @@ public static class BeirReproduction
             [],
             "NOT RUN and not scheduled -- its Real leg has never been embedded. Empty rather than a " +
             "guessed figure."),
+        new(
+            "scifact",
+            BeirProtocol.RealSelfQuery,
+            [0.68247],
+            "MEASURED 2026-09-05, 957.5 s, 300 queries and 300 model calls. Recall@10 0.81656, " +
+            "MRR@10 0.64221. **It BEAT the hand-filtered control, which was not expected**: the " +
+            "pre-filtered tag cell scores 0.67742 on the same store and the unfiltered control " +
+            "0.67065, so self-query is +0.00505 over a filter that cannot leak and +0.01182 over " +
+            "none. The filter is not what did it -- a filter can only remove, and with the same " +
+            "query vector the post-filtered page is a PREFIX of the pre-filtered ranking, so it " +
+            "cannot score higher. The query REWRITE is the only mechanism left: SelfQueryBehavior " +
+            "rewrites the query text and the pipeline embeds the rewrite. This cell measures " +
+            "rewrite AND filter together, and the rewrite is carrying it. " +
+            "**The post-filter's structural cost is real but INVISIBLE here**: 4,496 hits were " +
+            "discarded across 300 queries, and it changed nothing because the harness over-fetches " +
+            "for pooling, so the filtered page still holds far more than the cutoff needs. A caller " +
+            "retrieving at TopK 10 would see the shrinkage this run cannot."),
+        new(
+            "scifact",
+            BeirProtocol.RealTagFiltered,
+            [0.67742],
+            "MEASURED 2026-09-05, and it CONFIRMS a prediction recorded before the first run. " +
+            "The filtered leg returns 0.67742 -- SciFact's standalone Real dense figure, to five " +
+            "decimals, not within a band -- from a store holding 141,391 units: 20,155 tagged " +
+            "scifact and 121,236 tagged fiqa. 123,000 hits over 300 queries, 0 leaked and 0 " +
+            "untagged. Recall@10 0.81322, MRR@10 0.63757, matching the Real cell. " +
+            "**The control makes the reproduction mean something**: the SAME store measured " +
+            "unfiltered scores 0.67065, so FiQA does displace judged SciFact documents and the " +
+            "filter is doing work rather than being a no-op. The gap is only -0.00677, which is " +
+            "small but sits outside this file's +/-0.005 band, so it is a real difference rather " +
+            "than noise. Read it as 'a competing corpus costs a little here', NOT as 'filtering " +
+            "rarely matters' -- the pairing is scientific claims against financial QA, about as " +
+            "little lexical competition as two corpora can have. " +
+            "TIMING IS NOT A COST HERE: the first run took 702.7 s and the confirmation 26.9 s " +
+            "with an identical figure and 0 embedding-cache misses in both. The 26x gap is the OS " +
+            "page cache over a 141k-unit read, not compute; budget the cold number."),
         new(
             "scifact",
             BeirProtocol.Real,

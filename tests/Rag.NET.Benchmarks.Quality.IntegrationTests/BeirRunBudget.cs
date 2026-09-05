@@ -671,6 +671,82 @@ public static class BeirRunBudget
             + "all. The embedding cache absorbs the unit side on a re-run; the sentence side is "
             + "new text and is not in any cache."),
 
+        // Phase 6.2.1: the RealSplade cells. Four entries because the protocol applies to all four
+        // BEIR datasets; SciFact, FiQA and ArguAna are scheduled under the three-corpora scope
+        // decision of 2026-09-02. Unlike every other cell here, these additionally need a model the
+        // repository did not have until 2026-09-04 -- see docs/reference/ci.md for the pinned
+        // Qdrant/Splade_PP_en_v1 procedure. Every figure below is DERIVED until a run replaces it.
+        new(
+            "scifact",
+            BeirProtocol.RealSplade,
+            FitsTheNightly: false,
+            "MEASURED 2026-09-05 on an IDLE machine, which is the point: the three SPLADE cells ran "
+            + "as one process in 10,712 s (2 h 59 m) and the confirmation pass in 10,053 s. **The "
+            + "per-dataset `elapsed` figures the runs print are the MEASURE phase only** -- 76.4 s "
+            + "here, 447.8 s FiQA, 308.1 s ArguAna -- because encoding every unit through the MLM "
+            + "happens in SpladeAblationRow.OverAsync before the harness starts its stopwatch. The "
+            + "encoding is the cost, and it is not in those numbers. Budget the whole cell at "
+            + "roughly an hour for SciFact-sized corpora and read the three-dataset total, not the "
+            + "elapsed line. "
+            + "**A first attempt on 2026-09-04 took ~80 minutes for SciFact alone with a browser "
+            + "and an editor active**; the same cell on a quiet machine sits inside a 3 h run that "
+            + "also does 6x and 1.2x the units. That gap is why no cost was recorded then. "
+            + "The DERIVED text this replaces declined to give a number at all, on the grounds that "
+            + "five derivations in this phase had already missed; it is the second entry in the "
+            + "phase to decline and the second to need no correction afterwards."),
+        new(
+            "fiqa",
+            BeirProtocol.RealSplade,
+            FitsTheNightly: false,
+            "MEASURED 2026-09-05, idle machine: measure phase 447.8 s, encoding not separately timed -- see SciFact's entry for why the elapsed line understates these cells. 121,236 units at 6x that "
+            + "corpus, which is the one thing that can be said before a run."),
+        new(
+            "arguana",
+            BeirProtocol.RealSplade,
+            FitsTheNightly: false,
+            "MEASURED 2026-09-05, idle machine: measure phase 308.1 s. 24,003 units, and all 1,406 "
+            + "queries judged, so the query side costs more here than anywhere else."),
+        new(
+            "trec-covid",
+            BeirProtocol.RealSplade,
+            FitsTheNightly: false,
+            "NOT RUN and not scheduled. Its Real leg has never been embedded, and this cell would "
+            + "additionally encode a corpus 33x SciFact's through the MLM."),
+        // Phase 6.2.1: the RealTagFiltered cell. ONE entry, not four -- the protocol names a store
+        // composition rather than a corpus, and only SciFact declares it applicable, because the
+        // cell IS "SciFact retrieved out of a SciFact+FiQA store". Adding rows for the other three
+        // would describe runs that cannot exist.
+        new(
+            "scifact",
+            BeirProtocol.RealTagFiltered,
+            FitsTheNightly: false,
+            "MEASURED 2026-09-05. **Two runs, 702.7 s then 26.9 s, identical figures and 0 " +
+            "embedding-cache misses in both** -- the 26x gap is the OS page cache over a " +
+            "141,391-unit read, not compute. Budget the COLD number: roughly 12 minutes. The cell " +
+            "chunks and indexes FiQA's 57,638 documents (121,236 units) beside SciFact's 5,183 " +
+            "(20,155 units) and then measures twice, once filtered and once not, because the " +
+            "unfiltered control is what makes the filtered figure mean anything. " +
+            "The DERIVED text this replaces declined to give a number, on the grounds that five " +
+            "derivations in this phase had already missed; that is now three entries that declined " +
+            "and three that needed no correction. Not nightly-sized, and gated off by default."),
+        // Phase 6.2.1: the RealSelfQuery cell. Same store as RealTagFiltered, one entry, same
+        // reason -- the protocol names a store composition rather than a corpus.
+        new(
+            "scifact",
+            BeirProtocol.RealSelfQuery,
+            FitsTheNightly: false,
+            "DERIVED until it runs. It builds the SAME two-corpus store as the tag-filtered cell " +
+            "and adds one model call per query -- the counting pass measured self-query at 1.00 " +
+            "call and ~74 tokens per query, so 300 judged queries is about a cent. It also " +
+            "retrieves TWICE per query, once with self-query on and once off, because the pipeline " +
+            "returns the filtered page and says nothing about what it discarded; the difference " +
+            "between the two page sizes is the only way to see that from outside, and the second " +
+            "retrieval costs no model call. Calls go through the self-query cache, so a re-run " +
+            "replays free. Not nightly-sized, and gated off by default. " +
+            "MEASURED 2026-09-05: 957.5 s generating (300 model calls), 33.8 s replaying with 300 " +
+            "cache hits and 0 misses and an identical figure. The 28x gap is the model calls, not " +
+            "the page cache -- the embedding cache reported 141,391 hits and 0 misses in BOTH runs, " +
+            "so the corpus side was already warm each time. Budget the generating number once."),
         // Phase 6.2.1: the RealLateChunking cells. Four entries because the protocol applies to all
         // four BEIR datasets; SciFact, FiQA and ArguAna are scheduled under the three-corpora scope
         // decision of 2026-09-02. Every figure below is DERIVED until a run replaces it.
@@ -1136,6 +1212,17 @@ public static class BeirRunBudget
         BeirProtocol.GraphRagDepthControl =>
             "GRAPHRAG DEPTH CONTROL (the Real leg's article chunks alone, dense-retrieved at the " +
             "graph path's candidate depth, max-pooled to documents)",
+        _ => DescribeRealChunkingCell(protocol),
+    };
+
+    /// <summary>Describes the cells that run over the Real protocol's chunked corpus.</summary>
+    /// <remarks>
+    /// Split from <see cref="Describe(BeirProtocol)"/> only because the combined switch outgrew
+    /// the method-length analyser. The division is the natural one: everything here chunks with
+    /// RecursiveChunkingStrategy and varies what happens afterwards.
+    /// </remarks>
+    private static string DescribeRealChunkingCell(BeirProtocol protocol) => protocol switch
+    {
         BeirProtocol.RealHyde =>
             "+HYDE OVER REAL CHUNKING ablation cell (the Real protocol's chunked corpus, searched " +
             "with the cached hypotheticals' mean vector, against the Real dense figure)",
@@ -1150,6 +1237,18 @@ public static class BeirRunBudget
             "LATE CHUNKING over the Real protocol's boundaries (document embedded at token level, "
             + "each chunk pooled from token vectors that saw the whole document, against the Real "
             + "dense figure)",
+        BeirProtocol.RealSplade =>
+            "SPLADE learned sparse retrieval over the Real protocol's chunked corpus (units and "
+            + "queries encoded by OnnxSpladeEncoder, sparse dot product, NO dense arm; against the "
+            + "Real dense figure)",
+        BeirProtocol.RealTagFiltered =>
+            "TAG-FILTERED retrieval over a TWO-CORPUS store (SciFact and FiQA indexed together, "
+            + "every unit tagged with its corpus, dense retrieval restricted back to one of them; "
+            + "must REPRODUCE the single-corpus Real dense figure rather than beat it)",
+        BeirProtocol.RealSelfQuery =>
+            "SELF-QUERY over the same two-corpus store (a real model writes the corpus filter and "
+            + "the pipeline applies it AFTER retrieval, which shrinks the page rather than scoping "
+            + "the search; against the hand-filtered figure, not the single-corpus one)",
         _ => throw new ArgumentOutOfRangeException(nameof(protocol), protocol, null),
     };
 
@@ -1248,6 +1347,9 @@ public static class BeirRunBudget
             BeirProtocol.RealReranked => "UnderCrossEncoderRerankOverRealChunking",
             BeirProtocol.RealHybridBm25 => "UnderBm25HybridRrfOverRealChunking",
             BeirProtocol.RealLateChunking => "UnderLateChunking",
+            BeirProtocol.RealSplade => "UnderSplade",
+            BeirProtocol.RealTagFiltered => "UnderTagFilter",
+            BeirProtocol.RealSelfQuery => "UnderSelfQuery",
             _ => throw new ArgumentOutOfRangeException(nameof(cost), cost.Protocol, null),
         };
 
