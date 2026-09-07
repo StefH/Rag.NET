@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="Directory.Build.props" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/Rag.NET.Abstractions/Rag.NET.Abstractions.csproj" />
     <Project Path="src/Rag.NET/Rag.NET.csproj" />
