@@ -540,14 +540,89 @@ tests/Rag.NET.Benchmarks.Quality.IntegrationTests/bin/Release/net10.0/Rag.NET.Be
 in-process runner silently discards — a filtered `dotnet test` runs the whole project and reports
 success, which reads identically to a filtered run that passed. The `-class` argument is honoured.
 
+### Mind-map extraction, `RAGNET_MIND_MAP_GENERATE`
+
+Fills the `mind-map` cache with real model replies. Requires `OPENROUTER_API_KEY`; no workflow sets
+it and the nightly never spends. Absent the variable the cell replays from cache, and with an empty
+cache it skips rather than reaching the network.
+
+One call per article over the sixty-document `MultiHopRagSlice` — 60 calls, about $0.03. Measured
+2026-09-06: 398 s generating, under a second replaying.
+
+**Read a run whose articles come back empty as a failure, not a finding.** `MindMapExtractor`
+returns `EmptyRoot()` on an LLM failure and on an unparseable reply alike and never throws, so a run
+that reached no model completes and reports sixty documents processed. The cell asserts two thirds
+of the articles produced a titled root with children.
+
+```bash
+# Generating what the cache lacks.
+RAGNET_MIND_MAP_GENERATE=1   tests/Rag.NET.Benchmarks.Quality.IntegrationTests/bin/Release/net10.0/Rag.NET.Benchmarks.Quality.IntegrationTests.exe   -class Rag.NET.Benchmarks.Quality.IntegrationTests.BeirMindMapTests -showLiveOutput
+
+# Replay, free.
+tests/Rag.NET.Benchmarks.Quality.IntegrationTests/bin/Release/net10.0/Rag.NET.Benchmarks.Quality.IntegrationTests.exe   -class Rag.NET.Benchmarks.Quality.IntegrationTests.BeirMindMapTests -showLiveOutput
+```
+
+### Conversation memory, `RAGNET_CONVERSATION_MEMORY_GENERATE`
+
+Fills the `conversation-memory` cache with real model replies. Requires `OPENROUTER_API_KEY`; no
+workflow sets it and the nightly never spends. Same replay-and-skip behaviour as the gates above.
+
+Twenty ten-turn conversations processed after every turn. **140 calls, not the 200 a turn count
+suggests** — the first three turns of each conversation trim nothing, so no summary is requested.
+About $0.04. Measured 2026-09-06: 297 s generating, under a second replaying.
+
+**Read a run with zero summaries as a failure.** `GenerateSummaryAsync` catches every exception and
+returns `null`, and `ProcessAsync` then omits the summary message rather than failing, so a run that
+reached no model returns correctly-trimmed histories and looks like success.
+
+```bash
+# Generating what the cache lacks.
+RAGNET_CONVERSATION_MEMORY_GENERATE=1   tests/Rag.NET.Benchmarks.Quality.IntegrationTests/bin/Release/net10.0/Rag.NET.Benchmarks.Quality.IntegrationTests.exe   -class Rag.NET.Benchmarks.Quality.IntegrationTests.ConversationMemoryExerciseTests -showLiveOutput
+
+# Replay, free.
+tests/Rag.NET.Benchmarks.Quality.IntegrationTests/bin/Release/net10.0/Rag.NET.Benchmarks.Quality.IntegrationTests.exe   -class Rag.NET.Benchmarks.Quality.IntegrationTests.ConversationMemoryExerciseTests -showLiveOutput
+```
+
+### Deep research, `RAGNET_DEEP_RESEARCH_GENERATE`
+
+Fills the `deep-research` cache with real model replies. Requires `OPENROUTER_API_KEY`; no workflow
+sets it and the nightly never spends. Absent the variable the cell replays from cache, and with an
+empty cache it skips rather than reaching the network.
+
+The cell is SciFact's 300 judged queries at up to `MaxDepth` sufficiency checks each. The counting
+pass prices 900 calls at about $0.89; **the measured run made 657**, because the loop stops early on
+any query the model calls sufficient. 1,980.5 s generating, 73.6 s replaying.
+
+**Read a run that reports `0 hits, 0 misses` as a failure, not a null result.** `DeepResearchRetriever`
+catches every exception from the sufficiency check as "sufficient", so anything that stops the call
+reaching the model — a cache that refuses the request shape, a missing key — silently returns the
+inner page and reproduces the dense figure exactly. That is what happened on 2026-09-06 before
+`CachedGraphRagClient` learned to key `ChatOptions.ResponseFormat`, and it is why the cell asserts
+the loop expanded at least one page before its figure is read.
+
+```bash
+# The measured cell, generating what the cache lacks.
+RAGNET_BEIR_LONG_RUNS=scifact RAGNET_DEEP_RESEARCH_GENERATE=1   tests/Rag.NET.Benchmarks.Quality.IntegrationTests/bin/Release/net10.0/Rag.NET.Benchmarks.Quality.IntegrationTests.exe   -class Rag.NET.Benchmarks.Quality.IntegrationTests.BeirDeepResearchTests -showLiveOutput
+
+# Replay, free, and reproduce the pinned 0.70219.
+RAGNET_BEIR_LONG_RUNS=scifact   tests/Rag.NET.Benchmarks.Quality.IntegrationTests/bin/Release/net10.0/Rag.NET.Benchmarks.Quality.IntegrationTests.exe   -class Rag.NET.Benchmarks.Quality.IntegrationTests.BeirDeepResearchTests -showLiveOutput
+```
+
 ### Metadata extraction, `RAGNET_METADATA_EXTRACTION_GENERATE`
 
 Fills the `metadata-extraction` cache with real model replies. Requires `OPENROUTER_API_KEY`; no
 workflow sets it and the nightly never spends. Absent the variable the pilot replays from cache, and
 with an empty cache it skips rather than reaching the network.
 
-The pilot is 120 chunks — 60 from SciFact and 60 from FiQA — and costs about a cent. The full run
-over SciFact's 20,155 Real-protocol units is priced at roughly $4.63 by `LlmCallShapeTests`.
+The pilot is 120 chunks — 60 from SciFact and 60 from FiQA — and costs about a cent. The measured
+run is `BeirMetadataExtractionTests`: the whole of SciFact's 20,155 Real-protocol units, priced at
+roughly $4.63 by `LlmCallShapeTests` and taking about 7¼ hours at the rate it actually ran, plus a
+FiQA control capped at 1,000 units. **The cap is not thrift, it is arithmetic** — FiQA is 121,236
+units, 6× SciFact, so a full arm is ~$28 and ~44 hours, and a control needs a defensible `n`, not
+the whole corpus.
+
+**Both arms are additionally gated by `RAGNET_BEIR_LONG_RUNS`**, which must name the dataset. Never
+pass `1` here: it means every dataset.
 
 ```bash
 # Pilot: 120 chunks, generating what the cache lacks.
@@ -555,12 +630,19 @@ RAGNET_METADATA_EXTRACTION_GENERATE=1   tests/Rag.NET.Benchmarks.Quality.Integra
 
 # Replay: drop the variable and the same 120 come from cache, free.
 tests/Rag.NET.Benchmarks.Quality.IntegrationTests/bin/Release/net10.0/Rag.NET.Benchmarks.Quality.IntegrationTests.exe   -class Rag.NET.Benchmarks.Quality.IntegrationTests.BeirMetadataExtractionPilotTests
+
+# The measured run, both arms. Resumable: every reply is cached as it arrives, so an
+# interrupted run replays what it already paid for and spends only on the remainder.
+RAGNET_BEIR_LONG_RUNS=scifact,fiqa RAGNET_METADATA_EXTRACTION_GENERATE=1   tests/Rag.NET.Benchmarks.Quality.IntegrationTests/bin/Release/net10.0/Rag.NET.Benchmarks.Quality.IntegrationTests.exe   -class Rag.NET.Benchmarks.Quality.IntegrationTests.BeirMetadataExtractionTests -showLiveOutput
+
+# Replay both arms from cache, free, and reproduce the pinned coverage figures.
+RAGNET_BEIR_LONG_RUNS=scifact,fiqa   tests/Rag.NET.Benchmarks.Quality.IntegrationTests/bin/Release/net10.0/Rag.NET.Benchmarks.Quality.IntegrationTests.exe   -class Rag.NET.Benchmarks.Quality.IntegrationTests.BeirMetadataExtractionTests -showLiveOutput
 ```
 
 As with the self-query gate above, these invoke the built executable with `-class` rather than
 `dotnet test --filter`, which the xunit v3 in-process runner silently discards.
 
-The split keeps the *parity* number under nightly regression guard on two datasets, which is theThe split keeps the *parity* number under nightly regression guard on two datasets, which is theThe split keeps the *parity* number under nightly regression guard on two datasets, which is the
+The split keeps the *parity* number under nightly regression guard on two datasets, which is the
 number the milestone exists to protect and the only one that can be checked against a published
 figure at all. **What it gives up is stated rather than buried:** no chunk-to-document max-pooling
 runs against a corpus in the nightly any more. The cheap chunk-shape checks still run there and

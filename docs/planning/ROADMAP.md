@@ -4239,10 +4239,17 @@ phase's own first task; this entry states the question and the evidence, not the
 whatever definition this phase settles, or carries a `<VerifiedByReason>` stating why it stays.
 That is Milestone 6's second DoD criterion, and this phase owns it.
 
-### Phase 6.2.1: Retrieval & Answer Sweep — the GraphRAG method, applied to the rest [status: active 2026-08-20 — added 2026-08-15 by the re-plan; a sub-phase so 6.3 keeps the number every release note already points at. Two of its four named debts are now closed: #239 and #200 on 2026-08-17, **#247 on 2026-08-18** — fixed twice over, #311 hiding graph chunks from retrieval by default and #312 giving them their own store, pinned at 0.3494 in #280. **All four of its named debts are now closed**: #239 and #200 on 2026-08-17, #247 on 2026-08-18, and **#176 answered 2026-08-26 in #405** — not by driving the number down but by naming the dropped endpoints, which turn out to be common nouns and paraphrases rather than entities the extractor missed, so the singletons are honest and the obvious fix would trade a better number for a worse graph. The full-corpus reading stands at 2,816 of 3,573 (**78.8%**) against the 65% the issue carries, and that is now a documented property rather than an open debt. The local-search thread completed 2026-08-20 (#323, #326); the sweep itself has not started. **The RAPTOR measurement's Tasks 4-6 unblocked 2026-08-22** when #345 merged in #351 (`bb4c11c7`, verified on `main` by content): before it, `SelectClusterCount` capped every level at `SelectK(maxK: Min(count, 10))`, so over MultiHop-RAG's 17,648 chunks the largest level-1 cluster held at least 1,765 chunks (~183k tokens) against `gpt-4o-mini`'s 128k context and the corpus tree could not be built at the shipped default at all]
+### Phase 6.2.1: Retrieval & Answer Sweep — the GraphRAG method, applied to the rest [status: complete 2026-09-06 — every clause of its exit condition met, the last one amended the same day to the phase scope both allowlists are partitioned by; five LLM-funded entries discharged 2026-09-05/06 and the technique sweep completed 2026-09-05. Previously active 2026-08-20 — added 2026-08-15 by the re-plan; a sub-phase so 6.3 keeps the number every release note already points at. Two of its four named debts are now closed: #239 and #200 on 2026-08-17, **#247 on 2026-08-18** — fixed twice over, #311 hiding graph chunks from retrieval by default and #312 giving them their own store, pinned at 0.3494 in #280. **All four of its named debts are now closed**: #239 and #200 on 2026-08-17, #247 on 2026-08-18, and **#176 answered 2026-08-26 in #405** — not by driving the number down but by naming the dropped endpoints, which turn out to be common nouns and paraphrases rather than entities the extractor missed, so the singletons are honest and the obvious fix would trade a better number for a worse graph. The full-corpus reading stands at 2,816 of 3,573 (**78.8%**) against the 65% the issue carries, and that is now a documented property rather than an open debt. The local-search thread completed 2026-08-20 (#323, #326); the sweep itself has not started. **The RAPTOR measurement's Tasks 4-6 unblocked 2026-08-22** when #345 merged in #351 (`bb4c11c7`, verified on `main` by content): before it, `SelectClusterCount` capped every level at `SelectK(maxK: Min(count, 10))`, so over MultiHop-RAG's 17,648 chunks the largest level-1 cluster held at least 1,765 chunks (~183k tokens) against `gpt-4o-mini`'s 128k context and the corpus tree could not be built at the shipped default at all]
+**Completed:** 2026-09-06
+
 **Plan:** `docs/plans/2026-08-19-graphrag-local-search-completion-implementation.md` — the GraphRAG
 local-search thread only (spec sub-phases 6.x.1, 6.x.6, 6.x.7), not the whole sweep. **Complete
-2026-08-20.** Tasks 1–5 merged in #323; Task 6's measurement ran the same night and is pinned as the
+2026-08-20.** Its 45 task checkboxes went unticked until 2026-09-06, seventeen days after the work
+merged — the same bookkeeping-lags-the-merge pattern the Working State field has shown eleven times.
+All six tasks were verified on `main` by content before ticking: `CollectTopEntities` absent from
+`src/`, `## 9. Conversation history` in the spec doc, `ConversationHistory` threaded through
+`GraphRagSearch`/`IGraphRagSearch`/`LocalSearchContextBuilder`, `AnswerArm.LocalSpec` defined, and
+its arm pinned at `MultiHopRagAnswerReproduction.cs:128`. Tasks 1–5 merged in #323; Task 6's measurement ran the same night and is pinned as the
 `localspec` arm in `MultiHopRagAnswerReproduction`.
 
 **And it revises Milestone 5.2's published finding.** 5.2 concluded "GraphRAG does not help on this
@@ -4288,10 +4295,29 @@ traversal are decided here (rescale, drop, or use), with the ablation numbers in
 answer arm per engine (~$3 derived each, replayed after); one container run per store; a fast-tier
 test for parity. What it does not promise: that any of them are good. Measured is the bar.
 
-**Exit condition:** every row 6.0 classified as *plan* has its pointer and its pin; ~~#247 is fixed
-and re-measured~~ (met 2026-08-18); ~~the pipeline-parity test is in the fast tier~~ (met
-2026-08-27 — **both legs now run and pass as of 2026-08-28**, see below); the
-guards' allowlist is empty.
+**Exit condition:** ~~every row 6.0 classified as *plan* has its pointer and its pin~~ (met
+2026-09-06); ~~#247 is fixed and re-measured~~ (met 2026-08-18); ~~the pipeline-parity test is in
+the fast tier~~ (met 2026-08-27 — **both legs now run and pass as of 2026-08-28**, see below);
+~~the guards' allowlist carries no entry owned by this phase~~ (met 2026-09-06).
+
+**THE LAST CLAUSE WAS AMENDED ON 2026-09-06, AND THE ORIGINAL WORDING IS KEPT HERE SO THE CHANGE IS
+REVIEWABLE.** It read *"the guards' allowlist is empty"*. It is not empty and this phase cannot make
+it so: at the amendment, `SectionsAwaitingExercise` held **29** entries — 12 owned by 6.1, 17 by 6.2
+— and `PackagesAllowedToStayUnit` held **18** — 17 by 6.1, one (`Chunking.Templates`) by 6.2. **6.2.1
+owned none of either**, its section header in the package list sitting over an empty block.
+
+**Why the amendment rather than the reinterpretation.** From 2026-09-03 this phase had been reading
+the clause as "empty of this phase's entries" and recording that reading in prose — which is a
+reinterpretation, not a satisfaction, and closing against it would have been the green check that is
+not checking. Both lists are explicitly partitioned by owning phase and 6.2.1 cannot clear 6.1's
+credential-blocked connectors; holding the phase open on them would make it a container for other
+phases' work and block it on accounts it has no way to obtain. So the clause now says what it always
+meant, in writing, with the count it was amended against.
+
+**Verified by hand, not by the guard.** The SPLADE discharge established that the guard cannot see an
+entry whose work is DONE but unpointed — it satisfies both checks and is indistinguishable from one
+genuinely owed. The 47 remaining entries were counted and attributed by reading them; whether any is
+already secretly done is a question for 6.1 and 6.2, who own them.
 
 **Allowlist progress, 2026-09-03.** `PackagesAllowedToStayUnit` **20 → 19** and
 `SectionsAwaitingExercise` **42 → 40**, by discharging `Rag.NET.AnswerEngines`: all three of its
@@ -5100,6 +5126,148 @@ each posting list is shorter, so the corpus grew in rows and shrank in per-row w
 derivation in this phase to miss. **ArguAna's held**, and the difference is that it reasoned from a
 mechanism — query count drives these cells — rather than scaling a number from another corpus.
 
+**Mind-Map and Conversational Memory discharged 2026-09-06 — `SectionsAwaitingExercise` 36 → 34, and
+6.2.1 NOW OWNS NONE OF IT.** The exit condition's third clause is met: every row 6.0 classified as
+*plan* under this phase carries its pointer and its pin. What remains on the list belongs to 6.1
+and 6.2.
+
+| cell | result | calls |
+| --- | --- | --- |
+| Mind-Map, 60-article slice | 60 of 60 titled roots with children, 0 empty; 1,071 nodes, deepest 4 levels | 60 |
+| Conversation memory, 20 × 10 turns | 200 histories processed, 140 carried a summary, 1,120 messages trimmed | 140 |
+
+**Both are exercises, not quality figures, and both entries asked for exactly that.** A mind map has
+no qrels and a summary has no control arm; what these establish is that the shipped code, given real
+input and a real model, produces real output. Neither claims more, and both pointers say so.
+
+**THE COUNTING PASS WAS WRONG ABOUT MIND-MAP BY 50x, and reading the descriptor caught it.** The row
+carried a literal `3_000` MultiHop-RAG documents and priced the feature at **$1.59**; MultiHop-RAG's
+corpus is **609** documents, and the cell runs the **60**-document slice its entry names. Actual
+cost **$0.03**. The row now reads `MultiHopRagSlice.TargetDocumentCount` rather than a literal, so
+it cannot drift again. Phase total dropped $7.16 → $5.60. **A cost model is only worth having if its
+inputs are checked against the code rather than recalled** — the same failure the allowlist entries
+keep showing, in the file built to prevent it.
+
+**Conversation memory came in at 140 calls against 200**, because the first three turns of each
+conversation trim nothing and so request no summary. Second ceiling this week to behave as a
+ceiling rather than a prediction.
+
+**Both features fail open exactly as deep research did, and that shaped both cells.**
+`MindMapExtractor` returns `EmptyRoot()` on an LLM failure *and* on an unparseable reply and never
+throws; `ConversationMemoryPipeline` returns `null` and omits the summary message. Either would
+produce a clean-looking run describing code that never reached the model, so each cell carries a
+mechanism guard — `AssertTheModelActuallyBuiltTrees`, `AssertTheModelActuallySummarised`. **Both
+pass `options: null`**, so neither would have hit the `ResponseFormat` refusal that made deep
+research silently no-op; that fix landing first was luck rather than sequencing.
+
+**Two smaller observations, recorded rather than filed.** `MindMapOptions.MaxDepth` is documented as
+"maximum depth of the generated concept tree" and is **interpolated into the prompt only** — nothing
+checks the parsed tree, so a model that ignores it produces a deeper tree silently. This run's
+deepest is 4 node-levels against a documented 3, which is *at* the limit under edge-counting and
+over it under node-counting; the option does not say which it means, so no defect is claimed. And
+the mind-map cell passes `graphStore: null`, so the persistence path those options describe is
+still unexercised.
+
+**Deep Research measured and discharged 2026-09-06 — and the first run of it measured NOTHING while
+looking clean.** `SectionsAwaitingExercise` 37 → 36.
+
+| | deep research | Real dense control | Δ |
+| --- | --- | --- | --- |
+| nDCG@10 | **0.70219** | 0.67742 | **+0.02477** |
+| Recall@10 | 0.82622 | 0.81322 | +0.01300 |
+| MRR@10 | 0.66642 | 0.63757 | +0.02885 |
+
+**Second-largest gain any technique has had on SciFact**, behind HyDE's +0.03647 and ahead of hybrid
+BM25's +0.01880. **MRR rose more than Recall, which is the interesting half**: a technique that
+merely widened the candidate set would move Recall and leave the top of the ranking alone, so the
+chunks the sub-queries pull in are landing high rather than merely landing. **Read it as a larger
+search, not a better ranker** — the cell retrieves up to ten times per query where the control
+retrieves once.
+
+**THE FIRST RUN REPRODUCED THE CONTROL EXACTLY AND WOULD HAVE BEEN PUBLISHED.** 300 queries, 0
+expansions, `cache: 0 hits, 0 misses`, nDCG 0.67742 to five decimals — a clean null result reading
+"deep research changes nothing on SciFact". It cost $0.00 because nothing was ever called. Three
+individually correct designs composed into a silent no-op:
+
+1. `DeepResearchRetriever` catches **every** exception as "sufficient", not just malformed JSON.
+2. `CachedGraphRagClient.ThrowIfUnkeyable` refuses any `ResponseFormat`, because it cannot render
+   one into a cache key and will not forward a request unkeyed — the repo's fail-loud posture.
+3. Deep research sets `ResponseFormat = Json` on every sufficiency check.
+
+The refusal was swallowed as a sufficiency verdict, the loop broke at depth 0, and no call was
+counted. **`AssertTheLoopActuallyRan` failed the run rather than pinning it** — the guard was
+written for the model returning unreadable JSON and caught an infrastructure incompatibility
+instead. This is the third mechanism guard in the phase (after SPLADE's expansion and self-query's
+filter) and the first to catch something its author had not imagined.
+
+**The diagnosis ruled things out rather than guessing.** A DI test asserting the pipeline resolves
+the *same* decorated retriever passes (so the wiring is sound, and it is now a permanent test); a
+structural guard in the row asserting the deep pipeline is decorated and the control is not did not
+fire. Only then was the cache client the remaining candidate.
+
+**The fix renders `ResponseFormat` into the cache key** rather than refusing it — schema included,
+because two JSON-schema requests differing only in schema get materially different replies; unknown
+subtypes still throw. **No existing key changes**, since a request carrying a response format
+previously threw, so none of the ~86,510 entries on disk has one.
+
+**Two properties recorded rather than smoothed over.** The page is not capped to `TopK` — largest
+1,260 against 250, **5.04x**, filed as issue #475 and characterised in `DeepResearchRetrieverTests`
+— and its ordering mixes scores taken against different query vectors. Measuring as-shipped was the
+operator's call; fixing the contract on the way to a benchmark would publish a figure for code no
+released version has.
+
+**657 model calls against the 900 the counting pass priced** — the ceiling behaved as a ceiling,
+because `MaxDepth` bounds the calls and the loop stops early on any query called sufficient (116 of
+300 never expanded). 1,980.5 s generating, 73.6 s replaying, a 27x gap that is the model calls and
+not the page cache: the embedding cache reported 20,155 hits and 0 misses in both runs.
+
+**The allowlist entry named the wrong harness.** It asked for "an answer-harness arm";
+`DeepResearchRetriever` is an `IRetriever` decorator that `AnswerEngineArms.Create` cannot build, so
+it took the retrieval-cell route its siblings take. **Third entry in this phase found to
+mis-describe its own route**, after Hierarchical Merger and Domain-Specific Templates — all three
+written by reading rather than by checking against the code.
+**LLM Metadata Extraction discharged 2026-09-05 — `SectionsAwaitingExercise` 38 → 37, and the run
+had already been paid for.** The cell was measured over two corpora with the real
+`LlmMetadataExtractionBehavior` and a real `gpt-4o-mini`, one call per chunk.
+
+| arm | n | coverage | correct, of those extracted | cross-domain values |
+| --- | --- | --- | --- | --- |
+| SciFact (whole corpus) | 20,155 | **98.79%** | 99.88% | finance × 23 |
+| FiQA (capped control) | 1,000 | **62.70%** | 96.33% | biomedical × 23 |
+
+**The control is what makes this a measurement rather than a number.** The arms differ in the
+corpus and in nothing else — same behaviour, model, schema, temperature and cache — so the
+**36.09-point coverage gap is a property of the corpus, not of the behaviour**. That is precisely
+the claim #470's 120-chunk pilot could suggest and could not establish, and the pilot's predicted
+~40-point gap came in at 36.09. **A pilot that priced the run would have missed this; the one that
+scored it did not.**
+
+**The shortfall is the finding.** The misses are the model returning a literal `{}` — nothing throws
+and nothing fails to parse — and the behaviour attaches with `TryAdd` and logs a per-chunk warning,
+so **37.30% of a FiQA-shaped corpus comes out unlabelled with nothing louder than the log**, and a
+filter over that key quietly does not match those chunks. Live on the shipped path.
+
+**The money was already spent, and nobody had recorded it.** The SciFact cache — all 20,155 entries
+— was generated between 14:00 and 20:17 on 2026-09-05 by a session that ended without committing
+either the cell or a figure, leaving `BeirMetadataExtractionTests.cs` untracked in the checkout. The
+next session opened, asked the operator to fund a $4.63 run, and got 20,155 cache hits and 0 misses.
+**Read the hit rate as the alarm it was**: a never-run cell reporting a perfect cache is either
+prior work or a colliding key, and only counting the entries separates those. It was prior work —
+20,215 files against 20,155 SciFact + 60 pilot FiQA units, exact, and 21,155 after the FiQA arm.
+**A cache is a spend ledger and this phase has no way to read it**; the only reason this was caught
+is that the hit rate was implausible enough to check.
+
+**Both coverage figures are pinned in the cell at ±0.5 points and mutation-checked** at 0.6, which
+fails at the right arm with the right diagnostic. Because replay is deterministic the pin guards the
+**shipped attachment path**, not the model — a coverage move means the behaviour stopped attaching
+what it used to. The discharge's two halves were mutation-checked against each other as well:
+restoring the allowlist entry with the pointer present fails the staleness twin, 1 of 96.
+
+**What it does not claim:** no retrieval-quality figure — whether extracted metadata improves recall
+is unmeasured and this cell structurally cannot say. The section's **Q&A-pair route is untouched**;
+only the structured-tag route ran. FiQA's rate carries an n of 1,000 because its full 121,236 units
+are ~$28 and ~44 hours — **the cap is arithmetic, not thrift**.
+
 **SPLADE's thread completed 2026-09-05 — the sweep's fifth and last technique, and the phase's
 technique work is now done.** Measured on all three scheduled corpora on an idle machine, every
 figure reproduced by a confirmation pass agreeing to five decimals.
@@ -5813,6 +5981,186 @@ at shipped defaults, and the suite was green throughout — the same shape as 6.
 where no test had ever built a tree deeper than one level. Every fix here landed with a test that
 fails against the previous code, and each was mutation-checked with the mutation verified to
 compile first.
+
+### Phase 6.2.13: MCP Fail-Closed — give library consumers the guard the CLI already has [status: complete 2026-09-06 — added and shipped the same day. `Rag.NET.Mcp.AspNetCore` ships `WithRagNetHttpTransport` (throws at startup when neither a key nor an explicit opt-out is configured) and `MapRagNetMcp` (attaches the key check as an endpoint filter on the endpoints it maps). Package count 72 → 73. Previously active 2026-09-06 — added the same day from issue #198, after a survey of the repository's open work]
+**Surface:** Backend
+**HelpWanted:** no
+
+**Goal:** close #198 — a consumer who follows `docs/guide/mcp.mdx` and calls
+`AddRagNetMcpServer()` then `mcp.Server.WithHttpTransport()` gets a remote **write** surface with
+nothing authenticating it, and the library cannot detect that they did.
+
+**The hole is narrower than the issue states, and the narrowing is what makes it fixable.**
+`Rag.NET.Mcp.Tool` already fails closed: `Program.cs:51` refuses to start the HTTP transport without
+a key unless `--allow-anonymous`, and line 84 checks every request through
+`McpApiKeyAuthorization.IsAuthorized`. **The CLI got the guard; consumers building on the package did
+not.** `McpApiKeyAuthorization` is unit-tested as a decision function and nothing exercises a host.
+
+**#189's pattern cannot be copied, which is why this needed a design decision rather than a port.**
+The HTTP API fails closed by a marker singleton that `UseRagNetApiAuthentication` sets and
+`MapRagNetApi` reads. There is no `MapRagNetMcp`: HTTP is reached through the SDK's own
+`WithHttpTransport` extension on the SDK's own builder, so no marker in `Rag.NET.Mcp` can observe
+the call. And the package deliberately refuses the `ModelContextProtocol.AspNetCore` dependency that
+would let it wrap the transport, because stdio consumers host MCP tools in non-web processes.
+
+**Decision, taken by the operator 2026-09-06: a new `Rag.NET.Mcp.AspNetCore` package.** It ships a
+`WithRagNetHttpTransport(...)` that wraps the SDK transport, installs the key middleware, and
+**throws when neither a key nor an explicit opt-out is configured** — giving library consumers what
+the CLI already has, without putting a web framework in front of stdio users. This is Phase 6.2.6's
+precedent applied a second time: `Rag.NET.Security.Audit.Sqlite` was split out for the same
+don't-drag-a-dependency reason, and `UseAuditLog()` was **removed** rather than kept as a runtime
+check so that "configured, and nothing recorded" could not be expressed at all.
+
+**Exit condition:** the red run the issue names exists and passes — stand up the MCP HTTP host
+without configuring auth, call `rag_ingest`, assert it is rejected — and it is mutation-checked;
+`docs/guide/mcp.mdx` stops teaching hand-rolled middleware; the new package is packable and carries
+an `Exercised by:` pointer rather than joining `PackagesAllowedToStayUnit`.
+
+**What it does not promise:** an auth *scheme* beyond the shared key this repository already uses on
+three surfaces. OAuth, per-client identity and revocation are not in scope and the pointer will say
+so.
+
+**Completed:** 2026-09-06
+
+**Design:** `docs/plans/2026-09-06-mcp-fail-closed-design.md`
+
+**The guard is STRUCTURAL, which is stronger than #189 and worth stating.** `Rag.NET.Api` detects a
+missing `UseRagNetApiAuthentication` and throws, because middleware and endpoints are assembled
+through two builders that cannot see each other — the best available answer there. `MapMcp` returns
+the convention builder for the endpoints it just created, so here auth and endpoints attach to the
+same object: **"mapped but unauthenticated" is not expressible rather than merely detected**, and
+there is no ordering to get wrong. The filter is scoped to the MCP endpoints, unlike `ragnet-mcp`'s
+global `app.Use`, so a host mounting MCP beside its own endpoints does not authenticate those with
+this key by accident.
+
+**Six tests, and the mutation is what carries them.** No header → 401, wrong key → 401, right key
+reaches the transport, `AllowAnonymous` serves, configuring neither throws at configuration,
+mapping without the transport call throws. **Deleting the `AddEndpointFilter` call fails exactly the
+two rejection tests and nothing else** — the happy-path tests pass against a host with no
+authentication at all, which is the defect being fixed.
+
+**`docs/guide/mcp.mdx` stopped teaching hand-rolled middleware.** It taught
+`if (context.Request.Headers["X-Api-Key"] != "your-secret")` at line 76, which is what a consumer
+following the guide had to write for themselves — and the reason the hole was reachable by doing
+what the documentation said.
+
+**A stale count corrected on the way.** `PackageVerificationTests` said "72 packages under src/"
+while its own scan reports **74**: the comment counts packages and the scan counts `.csproj`, one of
+which is not packable. Both numbers were right and neither said which it was. Now recorded, because
+the gap looked like a defect for a minute.
+
+### Phase 6.2.14: Deletion Reaches the RAPTOR Leaves — stop deleted content coming back searchable [status: complete 2026-09-07 — added and shipped the same day. `IDocumentScopedStore` in `Rag.NET.Abstractions`, which `IRaptorLeafStore` extends; cleared by `DeleteAsync` and unconditionally by `StorageBehavior`. Four mutation checks, the decisive one being the DI registration. Previously active 2026-09-07 — added the same day from issue #338, the highest-severity item on the tracker]
+**Surface:** Backend
+**HelpWanted:** no
+
+**Goal:** close #338. `PipelineIngestor.DeleteAsync` clears the vector store, BM25, parent chunks,
+the data manager and the version store — and **not** `IRaptorLeafStore`. Under
+`RaptorTreeScope.Corpus`, which is the **shipped default** (`RaptorOptions.cs:159`), the next corpus
+build reads a deleted document's leaf text back out, sends it to the model, and stores the summary
+as retrievable content under `raptor://corpus-tree`. **It carries no document id**, so no later
+`DeleteAsync` can remove it and nobody can discover which summaries came from deleted material. For
+anyone using deletion to honour an erasure request, the operation is defeated.
+
+**`IRaptorLeafStore.RemoveDocumentAsync` already exists and has zero production callers** — the
+interface, the SQLite implementation and one test reference it, and nothing else. The method was
+built and never wired.
+
+**The issue offered three options; the code collapses them to one.** Everything `DeleteAsync`
+already clears — `IVectorStore`, `IBm25Index`, `IParentChunkStore`, `IRagDataManager`,
+`IEmbeddingVersionStore` — is an interface in `Rag.NET.Abstractions` injected with
+`[Inject(Required = false)]`. So "an optional core hook" and "a deletable side-store abstraction"
+are the same change, and it is the pattern this codebase already uses five times. The third option,
+a deletion event, would invent a mechanism to avoid a pattern that exists.
+
+**The second face was framed as an exception and turned out not to be one.** The design started
+from `OverwriteBehavior`'s recorded position — *"making delete-before-insert unconditional would
+change what `Overwrite` means for every existing caller"* — and treated leaves as a deliberate
+departure from it. **Running the first test showed why that was wrong: `Overwrite` defaults to
+false, so nothing fired on a plain re-ingest, which is the common path.**
+
+There are two groups, not one policy. `StorageBehavior.RemovePreviousAppendOnlyEntriesAsync` clears
+BM25 and the data manager on **every** ingest; the vector store and parent chunks are the ones
+deliberately stranded. **Leaves belong with BM25** — append-only per `(documentId, chunkIndex)`,
+exactly as postings are, and #336 is the same accumulation arriving at BM25 from the other
+direction. So the purge is unconditional and consistent rather than exceptional, and it is in both
+places for the reason BM25 is: `Overwrite` promises the document is gone up front *whatever happens
+next*, and `StorageBehavior` never runs when the replacement fails to parse.
+
+**Why it is not simply left stranded:** a stranded vector chunk is stale content still attributed to
+its document, and a later `DeleteAsync` removes it. A stranded leaf becomes a summary under no
+document id — unattributable, unremovable, searchable.
+
+**Exit condition:** deleting a document removes its leaves, proven by a test that builds a corpus
+tree AFTER the delete and asserts the deleted text is absent from what the tree was built over;
+re-ingesting a shorter document strands no leaves; both mutation-checked; `docs/guide/raptor.md`'s
+Known Limitations entry for #338 is removed rather than reworded.
+
+**What it does not promise:** retroactive cleanup. Summaries already written under
+`raptor://corpus-tree` from previously-deleted documents carry no document id and this phase cannot
+find them — a store written before the fix needs its tree rebuilt, and the guide will say so.
+
+**Completed:** 2026-09-07
+
+**Design:** the abstraction is one method and no marker properties, resolved as a collection so a
+package core cannot name may register its own without coordination.
+
+**THE DECISIVE GUARD IS THE DI REGISTRATION, and every other test would have passed without it.**
+`PipelineIngestor` and `StorageBehavior` iterate `IEnumerable<IDocumentScopedStore>`; the container
+does not resolve a base interface from a derived registration, so registering only
+`IRaptorLeafStore` leaves that collection empty. Every purge loop then runs zero times, everything
+compiles, and every test using a substitute registered directly as `IDocumentScopedStore` still
+passes — **the same silent shape as the defect being fixed**. `UseRaptor` therefore registers the
+same instance twice, and `UseRaptor_RegistersTheLeafStoreAsADocumentScopedStore_AndTheSameInstance`
+asserts identity rather than mere resolvability: two registrations each constructing their own
+`SqliteRaptorLeafStore` would open two connections to one file and delete from a store nothing else
+writes to.
+
+**Four mutations, each failing exactly its own guard:** removing the `DeleteAsync` purge, removing
+the `StorageBehavior` purge, removing the DI registration, and — earlier — the discovery that
+`Overwrite` defaults to false, which is what corrected the design from "leaves are an exception" to
+"leaves belong with BM25".
+
+**`docs/guide/raptor.md`'s Known Limitations entry is removed rather than reworded**, and replaced
+by a resolved note carrying the one thing the fix cannot do: summaries already written from
+previously-deleted documents carry no document id, so a store built before this needs its tree
+rebuilt for them to disappear.
+
+### Phase 6.2.15: The Corpus Tree Stops Accumulating in BM25 [status: complete 2026-09-07 — added and shipped the same day from #336, the sibling of 6.2.14 in the same "nothing prunes the corpus tree" family]
+**Surface:** Backend
+**HelpWanted:** no
+**Completed:** 2026-09-07
+
+**Goal:** close #336. Under `RaptorTreeScope.Corpus` the whole corpus tree is appended to whichever
+article triggered the rebuild, with every summary filed under `raptor://corpus-tree`.
+`StorageBehavior` purged previous append-only entries for `ctx.Metadata.DocumentId` only — never the
+corpus id — so **every rebuild appended another full copy of the tree's postings to BM25**, without
+bound. The vector store was spared only because it upserts on `(DocumentId, ChunkIndex)`; BM25
+appends.
+
+**The fix is a seam, not a special case.** `IngestionContext.AdditionalAppendOnlyPurgeIds` lets a
+behaviour name document ids other than the one being ingested whose append-only entries must go, and
+`StorageBehavior` honours it. `RaptorIngestionBehavior` registers the corpus id — **only when a tree
+was actually produced**, because asking for a purge of chunks this ingest does not then re-add would
+delete the standing tree's postings and put nothing back, turning a duplication bug into a
+disappearance one.
+
+**The issue's alternative was weighed and rejected on evidence.** It proposed routing every
+corpus-tree write through `RaptorTreeRebuilder`'s delete-then-store, removing the special case
+rather than adding a seam. Reading the rebuilder killed it: **it writes vectors directly and never
+touches `IBm25Index`**, so that route would have removed corpus summaries from BM25 entirely — and
+it also skips sparse vectors and version stamping. The ingest path keeps the tree inside the one
+storage path that does all three.
+
+**That reading found a second defect, filed rather than folded in: #487.** After a rebuild the two
+stores disagree — the vector store holds the new tree, BM25 still holds whatever ingest last wrote.
+Fixing it means deciding where BM25 doc ids come from when no ingest is in progress: the only real
+allocator is a counter on `PipelineIngestor`, and both rebuilders stub `GetNextBm25DocId` as
+`() => 0` precisely because they never reach BM25. Wider than this issue, so it is its own.
+
+**Proved at the seam rather than end to end**, because the RAPTOR tests drive `HandleAsync` with a
+stub `next` and never run `StorageBehavior`: one test asserts the behaviour registers the id (and,
+as pointedly, does **not** register it when no tree was built), the other asserts `StorageBehavior`
+purges whatever is registered while leaving the vector store alone. Both mutation-checked.
 
 ### Phase 6.3: Release v1.0 [status: pending — but its first work is DONE and was done before this milestone opened: 71 packages are live on nuget.org at 0.1.0 since 2026-08-11, so the account, the key and every package ID are settled. What remains is the v1.0 tag itself. ~~Now gated on 6.2.3~~ — **that gate cleared 2026-08-21** when #340 merged. What still gates the tag is 6.1's recordings, kept as a gate by the operator's 2026-08-20 decision, and 6.2.1's sweep]
 **Goal:** Tag v1.0, plus whatever release mechanics Phase 4.1's packaging pass leaves to

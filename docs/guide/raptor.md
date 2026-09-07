@@ -399,87 +399,53 @@ options.TargetClusterSize = 100; // Floor on cluster count — must be greater t
 
 ## Known Limitations
 
-These apply under `Corpus` scope. Both are open issues, not this guide's suggestion for how to
-work around them — there is currently no workaround short of the fixes tracked in the issues
-below.
+This applies under `Corpus` scope. It is an open issue, not this guide's suggestion for how to
+work around it — there is currently no workaround short of the fix tracked in the issue below.
 
-### Deleting a document does not delete its RAPTOR leaves (#338)
+### Deletion reaches the leaves (#338, fixed)
 
-`PipelineIngestor.DeleteAsync` clears the vector store, BM25 index, parent store, data manager and
-version store for a document — but it never calls `IRaptorLeafStore.RemoveDocumentAsync`. That
-method exists on the interface; nothing in the product calls it.
+**Resolved in Phase 6.2.14.** `IRaptorLeafStore` extends `IDocumentScopedStore`
+(`Rag.NET.Abstractions`), and both `PipelineIngestor.DeleteAsync` and
+`StorageBehavior` clear every registered document-scoped store — so deleting a document removes its
+leaves, and re-ingesting a shorter one strands none. The purge on re-ingest is unconditional rather
+than gated on `Overwrite`, which places leaves alongside the BM25 index rather than alongside the
+vector store's deliberately-stranded tail.
 
-Concretely: ingest a document under `Corpus` scope, then delete it. It disappears from search
-immediately, as expected. But its chunks are still sitting in the leaf store, and the next corpus
-build (debounced or forced via `RaptorTreeRebuilder.RebuildAsync`) reads that leaf text back out,
-sends it to the LLM, and stores a fresh summary under `raptor://corpus-tree`. The deleted document's
-content becomes searchable again — through a summary chunk with no document id to trace it back to,
-and no delete operation that removes it, because the summary is filed under the corpus id, not the
-document's.
+**One thing the fix cannot do: clean up retroactively.** Summaries already written under
+`raptor://corpus-tree` from documents deleted *before* this landed carry no document id, so nothing
+can identify which of them came from deleted material. A store built before the fix needs its tree
+rebuilt — `RaptorTreeRebuilder.RebuildAsync` after the deleted documents are gone from the leaf
+store — for those summaries to disappear.
 
-A second, related gap: `OverwriteBehavior` deletes a document's vector-store entries before
-re-ingesting it, but the leaf store only *upserts* leaves by `(document_id, chunk_index)`. If the
-new version of a document is shorter than the old one, the old version's tail leaves (indices past
-the new chunk count) are never overwritten and never deleted — they strand in the leaf store and
-keep contributing to future corpus builds.
+### The corpus tree and its two stores (#336 fixed; #487 open)
 
-Neither of these can be fixed by adding a call to `RemoveDocumentAsync` from core: core cannot
-reference `Rag.NET.Raptor.Store` (the dependency direction runs the other way), so a real fix needs
-a new abstraction core can depend on. That is out of scope for this phase; #338 tracks it.
+Corpus summaries are filed under the single reserved id `raptor://corpus-tree`, which is not the id
+of any document being ingested. Three consequences followed from that; **one is fixed and two are
+not.**
 
-### #336 is on by default now that `Corpus` is the default scope
+**Fixed in Phase 6.2.15 — BM25 postings no longer accumulate.**
+`StorageBehavior` used to purge previous append-only entries for `ctx.Metadata.DocumentId` only, so
+every ingest-triggered build appended a full extra copy of the tree's postings instead of replacing
+the previous one. At the default `CorpusGrowthThreshold = 0.10` a corpus growing from 100 to 10,000
+leaves triggers roughly 48 builds — up to 48 duplicate copies, each inflating IDF for every term the
+summaries contain. `IngestionContext.AdditionalAppendOnlyPurgeIds` now lets the RAPTOR behaviour
+name the corpus id, and it does so only when a build actually produced a tree.
 
-Corpus summaries are filed under the single reserved id `raptor://corpus-tree`.
-`StorageBehavior`'s `RemovePreviousAppendOnlyEntries` only removes BM25 postings for
-`ctx.Metadata.DocumentId` — the *ingesting* document's id, never the corpus id a summary is
-actually filed under — so every ingest-triggered corpus build appends a full extra copy of the
-tree's BM25 postings rather than replacing the previous copy. At the default
-`CorpusGrowthThreshold = 0.10`, a corpus growing from 100 to 10,000 leaves triggers roughly 48
-builds — up to 48 duplicate copies of the tree's postings, each inflating IDF for every term the
-summaries contain.
+**Still open — vector-store orphans on the ingest path.** Clustering is not stable across runs, so a
+later build can produce fewer summaries than an earlier one. `RaptorTreeRebuilder.RebuildAsync`
+deletes the previous corpus tree before storing the new one for exactly this reason; the
+ingest-triggered path does not, so surplus summaries from a shrinking tree survive as orphans that
+retrieval can still return. The 6.2.15 fix deliberately did **not** touch the vector store — it
+upserts on `(DocumentId, ChunkIndex)` and was never the half that accumulated without bound — so
+this facet is unchanged.
 
-Two more facets of the same root cause:
+**Still open — `RaptorTreeRebuilder.RebuildAsync` bypasses BM25 entirely ([#487]).** It writes the
+rebuilt tree through `IVectorStore` directly with no corresponding BM25 update, so after a rebuild
+the two stores disagree: the vector store holds the new tree, BM25 holds whatever the ingest path
+last wrote. Earlier in this guide `RebuildAsync` is offered as the way to force a tree current —
+**that remedy still carries this caveat**: it makes the vector store's copy current and not BM25's.
+Fixing it means deciding where BM25 doc ids come from when no ingest is in progress, which is why it
+is filed rather than folded into #336.
 
-- **Vector-store orphans accumulate on the ingest path.** Clustering is not stable across runs, so
-  a later build can produce fewer summaries than an earlier one. `RaptorTreeRebuilder.RebuildAsync`
-  deletes the previous corpus tree before storing the new one for exactly this reason (see its own
-  remarks) — but the ingest-triggered build path does not delete first, so any surplus from a
-  shrinking tree survives as orphaned chunks that retrieval can still return.
-- **`RaptorTreeRebuilder.RebuildAsync` bypasses BM25 entirely.** It writes the rebuilt tree through
-  `IVectorStore` directly, with no corresponding BM25 update. A rebuilt tree is therefore invisible
-  to keyword and hybrid search, while the stale, duplicated copies the ingest path wrote to BM25
-  remain searchable. Earlier in this guide, `RebuildAsync` is offered as the way to force a tree
-  current — that remedy carries this caveat: it fixes the vector store's copy of the tree and not
-  BM25's.
+[#487]: https://github.com/MarcelRoozekrans/Rag.NET/issues/487
 
-Not fixed in this phase; #336 tracks it.
-
-## Troubleshooting
-
-**RAPTOR is not creating any summary chunks**
-- Check that `Enabled = true` (default)
-- Under `Corpus` scope (the default): this is expected on most ingests — see [Tree Scope](#tree-scope). Call `RaptorTreeRebuilder.RebuildAsync` to force a build now.
-- Under `PerDocument` scope: ensure your document produces at least `MinChunksForRaptor` chunks (default 5)
-- Verify `IChatClient` is registered in DI (or `SummaryChatClient` is set)
-
-**Too many/few clusters**
-- `MaxClusters` caps how many clusters a level may split *into* — it does not cap how large any one
-  cluster is. A *lower* `MaxClusters` forces the same chunks into **fewer, larger** clusters, not
-  smaller ones; if clusters already feel too big, lowering it makes that worse, not better.
-- **The cap yields to `TargetClusterSize`.** Where honouring `MaxClusters` would produce a cluster
-  averaging above `TargetClusterSize`, RAPTOR uses the larger, `TargetClusterSize`-derived count
-  instead — a documented cap silently exceeded with no way to find out why would be worse than one
-  that is overridden visibly. When this happens, the `ragnet.raptor.summarize` span
-  carries `raptor.cluster.maxclusters.overridden = true` (see [OpenTelemetry
-  Integration](../reference/opentelemetry.md#satellite-spans)). See [Cluster Size](#cluster-size)
-  for what `TargetClusterSize` guarantees and does not.
-- Adjust `ReducedDimensionality` — lower values = coarser clustering
-
-**Summaries are too generic**
-- Customize `SummaryPrompt` to be more specific to your domain
-- Reduce cluster sizes by increasing the number of clusters
-
-**High ingestion latency**
-- Use a cheaper model via `SummaryChatClient`
-- Set `MaxTreeDepth = 1` to limit to one summary level
-- Increase `MinChunksForRaptor` to skip small documents

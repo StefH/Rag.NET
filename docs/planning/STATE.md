@@ -1,9 +1,20 @@
 # Session State
 
-**Last updated:** 2026-09-05 (THE TECHNIQUE SWEEP IS COMPLETE — five techniques, three corpora each,
+**Last updated:** 2026-09-06 — **6.2.1 NOW OWNS NO ALLOWLIST ENTRIES.** All four LLM-funded
+entries are discharged: Self-Query and LLM Metadata Extraction on the 5th, Deep Research, Mind-Map
+and Conversational Memory on the 6th. The phase's exit condition is met on every clause it owns;
+what remains on `SectionsAwaitingExercise` belongs to 6.1 and 6.2. **Two lessons outrank the
+figures.** (1) A cache is a spend ledger nothing reads — count it before quoting a cost; the
+metadata run's $4.63 had already been paid. (2) **Fail-open code makes a benchmark lie quietly**:
+deep research reproduced its control exactly with zero model calls, and only a mechanism guard
+caught it. Every LLM-driven cell now carries one.
+
+(Previously: THE TECHNIQUE SWEEP IS COMPLETE — five techniques, three corpora each,
 fifteen cells, every figure pinned and reproduced on an idle machine. What remains of the phase is
-four allowlist entries, all LLM-funded; Self-Query is measured and discharged)
-Seventeen PRs merged across three days, each verified on `main` by content)
+**three** allowlist entries, all LLM-funded — Self-Query and **LLM Metadata Extraction** are both
+measured and discharged. **A cache is a spend ledger nothing here reads**: the metadata run's
+$4.63 had already been paid by an earlier session that ended without committing the cell or the
+figure, and the only thing that caught it was a never-run cell reporting 20,155 hits and 0 misses)
 **Written by:** `project-orchestration` — first `STATE.md` this project has had. Milestones 1–5 ran
 without one, which is why every session so far re-derived its position from `ROADMAP.md` and
 `MILESTONE.md` and twice acted on a debt that had already closed.
@@ -11,7 +22,14 @@ without one, which is why every session so far re-derived its position from `ROA
 ## Current Position
 
 **Milestone:** 6 — Hardening & v1.0 — Battle-Tested (active since 2026-08-15)
-**Phase:** 6.2.1 — Retrieval & Answer Sweep (active; RAPTOR Task 5 is done and pinned in #389,
+**Phase:** 6.2.1 — Retrieval & Answer Sweep — **COMPLETE 2026-09-06.** Every exit-condition clause
+met; the allowlist clause was amended the same day from "the guards' allowlist is empty" to "carries
+no entry owned by this phase", with the original wording and the 47-entry count kept in `ROADMAP.md`
+so the change is reviewable. **The next phase is 6.3 Release v1.0, and it is blocked on 6.1** — 18
+cassettes whose blocker is accounts rather than effort, kept as a v1.0 gate by the operator's
+2026-08-20 decision. Nothing in the codebase moves that.
+
+**Previously** (active; RAPTOR Task 5 is done and pinned in #389,
 **#176 closed 2026-08-26 in #405** and the **PageRank blend deleted 2026-08-27 in #408** — all four
 named debts are closed and only the sweep itself remains). **RAPTOR Task 6 closed 2026-08-27 in
 #412, so RAPTOR is the sweep's first completed technique** — measured, pinned, and now written down
@@ -291,6 +309,57 @@ the extraction cache was replayed refuse-on-miss.
 
 ## Recommended Next Step
 
+**6.2.1 has nothing left of its own.** All three clauses of its exit condition are met: the
+pipeline-parity test is in the fast tier, no allowlist entry is owned by this phase, and every row
+6.0 classified as *plan* here carries its pointer and its pin. **The next decision is whether to
+close the phase** — `complete-phase` — and then what Milestone 6 does about 6.1, which is the only
+thing between the project and the v1.0 tag and is blocked on accounts rather than effort.
+
+**Before closing it, re-run the reconciliation the SPLADE discharge taught.** The guard cannot see
+an entry whose work is DONE but unpointed: it checks that an entry has no pointer and that a pointer
+names a real class, and an unpointed-but-finished entry satisfies both. Count
+`SectionsAwaitingExercise` against `features.md` by hand once more before declaring the clause met.
+
+**What the five discharged cells cost in total: about $5.60 priced, far less actually spent** —
+metadata $4.63 (already paid before this session), deep research ~$0.65 of a $0.89 ceiling, mind-map
+$0.03, conversation memory ~$0.04, self-query $0.01.
+
+**Superseded, kept for the reasoning:** the three entries below were the remaining work and are now
+done. **Pilot each before funding it** still holds as a rule — #470's pilot found the silent `{}`
+shortfall a well-formedness check would have called 120/120 success.
+
+**BEFORE SPENDING ANYTHING, COUNT THE CACHE.** `~/.cache/ragnet-beir/<subdirectory>` is a spend
+ledger and nothing in this repository reads it. On 2026-09-05 a session asked the operator to fund a
+$4.63 run that an earlier session the same day had already paid for and left unrecorded; the tell was
+a never-run cell reporting 20,155 hits and 0 misses. **Read a perfect hit rate on a first run as an
+alarm, not a result** — it is either prior work or a colliding key, and counting entries against
+expected units separates them in one command.
+
+---
+
+**2026-09-05, later — LLM Metadata Extraction measured and discharged, `SectionsAwaitingExercise`
+38 → 37.**
+
+| arm | n | coverage | correct | cross-domain |
+| --- | --- | --- | --- | --- |
+| SciFact (whole) | 20,155 | **98.79%** | 99.88% | finance × 23 |
+| FiQA (capped control) | 1,000 | **62.70%** | 96.33% | biomedical × 23 |
+
+**The corpus is the only variable, so the 36.09-point gap is the corpus.** Same behaviour, model,
+schema, temperature and cache on both arms. The pilot predicted ~40 points from 120 chunks and got
+36.09 — its finding held, and a single-corpus run could not have established it. FiQA is capped
+because its 121,236 units are ~$28 and ~44 hours; **the cap is arithmetic, not thrift.**
+
+**The shortfall is live on the shipped path.** Misses are a literal `{}`, nothing throws, and the
+behaviour attaches with `TryAdd` plus a per-chunk warning — so **37.30% of a FiQA-shaped corpus is
+unlabelled with nothing louder than a log**, and a filter over that key silently does not match.
+Both figures are pinned at ±0.5 and mutation-checked at 0.6; replay being deterministic, the pin
+guards the attachment path rather than the model.
+
+**Also fixed on the way:** a line in `docs/reference/ci.md` was triplicated on itself — introduced
+doubled by #468 and worsened by #470, and on `main` for two days. Nothing guards prose for that.
+
+---
 
 **2026-09-05 — the technique sweep is COMPLETE. Five techniques, three corpora each, fifteen cells,
 every figure pinned and reproduced.**
@@ -995,7 +1064,27 @@ much larger than answer generation's.
 > really on `main`, grep for the symbol — do not trust a PR's MERGED label, which has been wrong
 > here before.
 
-**Last landed on `main`:** **#452** as `d7d20666` (2026-09-03) — late chunking measured on three
+**Last landed on `main`:** **#471** as `b014217d` (2026-09-06) — metadata extraction measured on two
+corpora. Verify by content: `98.79` in `BeirMetadataExtractionTests.cs`. Before it **#476** as
+`2342df31` — deep research, and the `ResponseFormat` cache fix; verify by content:
+`RenderResponseFormat` in `CachedGraphRagClient.cs`. **Both verified on `main` by content rather
+than by a MERGED label**, and #471 needed a conflict resolved that no label would have surfaced:
+both PRs deleted adjacent lines from `SectionsAwaitingExercise`, and taking either side would have
+silently resurrected a discharged entry.
+
+Before them, **#470** as `e2d5f39c` (2026-09-05) — the 120-chunk metadata-extraction
+pilot, and the silent coverage gap it found before the full run was funded. Verify by content:
+`BeirMetadataExtractionPilotTests` under `tests/Rag.NET.Benchmarks.Quality.IntegrationTests/`, and
+`RAGNET_METADATA_EXTRACTION_GENERATE` in `docs/reference/ci.md`.
+
+**This field was EIGHTEEN PRs stale when this session opened — the eleventh occurrence**, and the
+largest gap yet. It named #452 (`d7d20666`) while `main` carried #470; everything from #453 to #470
+had landed in between. The note above held again: `git branch --show-current` and a content check
+against `main` were both right, and this field was wrong. **The eleventh occurrence is not new
+information about forgetfulness — it is the tenth confirmation that a mutable pointer in a file
+nobody edits at merge time cannot be maintained.** Update it only when new work lands.
+
+Before it, **#452** as `d7d20666` (2026-09-03) — late chunking measured on three
 corpora, and the `MaxTokens` shipped defect it exposed. Verify by content: `MaxTokens { get; set; }
 = 256` in `src/Rag.NET.Embeddings.Onnx/OnnxTokenEmbeddingOptions.cs`, and the pinned `0.65510` in
 `BeirReproduction.cs`.
