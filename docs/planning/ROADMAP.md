@@ -5216,6 +5216,45 @@ previously threw, so none of the ~86,510 entries on disk has one.
 operator's call; fixing the contract on the way to a benchmark would publish a figure for code no
 released version has.
 
+> **SUPERSEDED 2026-09-07 — RE-MEASURED AFTER #475, AND THE GAIN NEARLY DOUBLED.**
+>
+> | | before #475 | after #475 | control |
+> | --- | --- | --- | --- |
+> | nDCG@10 | 0.70219 | **0.71913** | 0.67742 |
+> | Recall@10 | 0.82622 | **0.83789** | 0.81322 |
+> | MRR@10 | 0.66642 | **0.68314** | 0.63757 |
+> | Δ nDCG@10 | +0.02477 | **+0.04171** | — |
+>
+> **That makes it the largest gain any technique has had on SciFact**, ahead of HyDE's +0.03647,
+> where before it was second. **All 657 calls replayed from cache for $0.00**, exactly as predicted:
+> the sufficiency prompts are built from the accumulated union, which the fix deliberately left
+> untouched.
+>
+> **THE READING INVERTS.** The entry above says to read the old figure as *"a larger search, not a
+> better ranker"*, and that was right — the page was not capped and the largest returned 1,260
+> against a TopK of 250. Both sides now return at most 250, so the new gain is bought by **ordering
+> the same-sized page better**, not by returning more of it. MRR moved most of the three (+0.04557
+> against Recall's +0.02467), which is what a ranking improvement looks like rather than a wider net.
+>
+> That the number went **up** when the over-fetch was removed is the strongest evidence for what
+> #475 claimed: the old top ten was selected by comparing scores taken against different query
+> vectors, a comparison with no meaning, and replacing it with rank fusion was worth more than the
+> extra 1,010 chunks were.
+>
+> **The cell's mechanism guard had to be rewritten, because the fix broke its detection method.** It
+> counted expansion as *"the deep page is longer than the control's"*, which the cap makes false by
+> construction: the first re-run reported 0 of 300 expanded while all 657 model calls replayed. It
+> now compares pages by content and order — immune to the cap, and strictly stronger than the length
+> check, which a run finding nothing new would have passed. Both agree on this data at 184 of 300.
+>
+> **Reproducing it needs a clean checkout, for a reason nobody has explained.** These figures come
+> from a pristine `git worktree` of the fixing commit, where the run replays 657 hits / 0 misses,
+> reproduced three times. The same commit in the primary working tree reports 0 hits / 300 misses on
+> identical tracked content, identical embeddings (20,155 hits / 0 misses both ways) and after clean
+> rebuilds of every assembly on the key path. It costs nothing either way — `RefuseOnMiss` throws
+> rather than calling — but **read 0 hits as "wrong checkout", not "empty cache", until this is
+> understood.**
+
 **657 model calls against the 900 the counting pass priced** — the ceiling behaved as a ceiling,
 because `MaxDepth` bounds the calls and the loop stops early on any query called sufficient (116 of
 300 never expanded). 1,980.5 s generating, 73.6 s replaying, a 27x gap that is the model calls and
@@ -6162,7 +6201,7 @@ stub `next` and never run `StorageBehavior`: one test asserts the behaviour regi
 as pointedly, does **not** register it when no tree was built), the other asserts `StorageBehavior`
 purges whatever is registered while leaving the vector store alone. Both mutation-checked.
 
-### Phase 6.2.16: The Variance Floor Learns the Data's Scale [status: complete 2026-09-07 — added and shipped the same day. **#337 REMAINS OPEN**: this fixes a symptom the issue did not name and leaves the one it did]
+### Phase 6.2.16: The Variance Floor Learns the Data's Scale [status: complete 2026-09-07 — added and shipped the same day. **#337's residue is closed in 6.2.19**; when this phase shipped it fixed a symptom the issue did not name and left the one it did]
 **Surface:** Backend
 **HelpWanted:** no
 **Completed:** 2026-09-07
@@ -6208,6 +6247,307 @@ and a threshold validated against a real corpus rather than a fixture. Not impro
 **#333's guards held throughout**, which was the stated constraint: all pre-existing tests pass
 unchanged, including *two well-separated blobs still yield k ≥ 2* and *k < n on distinct data*.
 Mutation-checked by restoring the old constant — the scale-invariance test fails and the rest do not.
+
+### Phase 6.2.17: BM25 Ids Belong to the Index [status: complete 2026-09-07 — added and shipped the same day; closes #490 and unblocks #487, which it also closes]
+**Surface:** Backend
+**HelpWanted:** no
+**Completed:** 2026-09-07
+
+**Goal:** #487 asked why `RaptorTreeRebuilder` cannot write BM25. Answering it found a worse defect
+underneath, filed as **#490**, and fixing that root cause closes both.
+
+**#490, measured across one process boundary:**
+
+```
+second.Search("alpha") -> 1 hit     (the document from before the restart)
+second.Search("bravo") -> 0 hits    (the one added after it — silently not indexed)
+```
+
+`PipelineIngestor` allocated BM25 ids from a private per-instance counter starting at 0.
+`SqliteBm25Index.InitialiseCore` reloads the ids it persisted. So **after a restart the allocator
+handed out ids the index already held**, and `InMemoryBm25Index.Add` hit
+`if (_docs.ContainsKey(docId)) return;` — dropping the chunk with no error, no log line and no
+return value a caller could check. Worse, `SqliteBm25Index.Add` had already run
+`INSERT OR REPLACE`, so the persisted row held the **new** chunk under the **old** chunk's id while
+memory held the old one; the two stores disagreed until the next restart swapped which was visible.
+
+**At shipped defaults with `UseSqlitePersistence`, every document ingested after a process restart
+was missing from keyword and hybrid search** — which reads as a relevance problem rather than a
+missing document.
+
+**The allocator was in the wrong place, and that is the whole fix.** Only the index knows which ids
+are taken, so `IBm25Index.Add` now takes a chunk and returns the id it assigned.
+`IngestionContext.GetNextBm25DocId`, `PipelineIngestor`'s counter, and both rebuilders'
+`() => 0` stubs are gone. `InMemoryBm25Index.AddWithId` stays `internal` for the one path that
+legitimately supplies an id — `SqliteBm25Index` restoring what it persisted — and seeds the
+allocator above every restored id.
+
+**#487 falls out of it.** `RaptorTreeRebuilder` can now remove and re-add the corpus tree's
+postings, so a rebuild no longer leaves the vector store holding the new tree while BM25 holds
+whatever ingest last wrote. Remove-then-add, for the reason the vector store is deleted first:
+clustering is not stable across runs and a shorter tree must not strand the surplus.
+
+**Breaking**, deliberately: `Add(int, TextChunk)` is gone rather than kept as an overload, because
+an id nobody can pass is an id nobody can collide. Third interface change this milestone taken on
+the same pre-1.0 reasoning.
+
+**Two more gaps closed on the operator's "fix it thoroughly", rather than left as follow-ups.**
+
+`GraphProjectionRebuilder` had **the identical defect to #487's** — deletes and stores community
+reports through `IVectorStore`, never touching BM25 — in the sibling nobody had looked at. It was
+unfixable for the same reason and is fixed by the same allocator. A rebuild no longer leaves the
+vector store holding the new reports while BM25 returns the previous run's.
+
+And `Add`'s silent return on a duplicate id is now a throw. **That silence is what turned #490 from
+a collision into missing data**: the chunk was dropped with nothing to observe it by. The public
+path allocates so it cannot collide, and `AddWithId`'s only caller replays a primary key — so a
+duplicate now means a caller reintroduced the bug, and it says so instead of losing the document.
+
+**Four mutations, each failing exactly its own guard:** removing the allocator's seeding fails both
+#490 tests; neutralising either rebuilder's BM25 write fails its own test.
+
+### Phase 6.2.18: The Deep Research Page Honours TopK [status: complete 2026-09-07 in #494 — closes #475, and re-measures the cell whose figure it changed]
+**Surface:** Retrieval
+**HelpWanted:** no
+**Completed:** 2026-09-07
+
+**Goal:** `RetrievalOptions.TopK` documents itself as "chunks to return after all pipeline stages".
+`DeepResearchRetriever` is a pipeline stage and nothing truncated: `TopK` 5 with three sub-queries
+returned **20**, and the benchmark cell's largest page was **1,260 against its control's 250**.
+
+**THE ISSUE'S OWN SUGGESTED FIX WOULD HAVE MADE RETRIEVAL WORSE.** #475 asked to truncate the union
+to `TopK`. It also recorded, as a separate observation, that the union is sorted by scores taken
+against *different query vectors*. While nothing truncated, that only mis-ORDERED the page. Cutting
+at `TopK` on the same ordering promotes the broken comparison to deciding CONTENT — the caller's
+best-matching chunks dropped in favour of a sub-query's inflated ones. That trades a documented
+over-fetch for a silent quality loss.
+
+Fused by **Reciprocal Rank Fusion** instead, which reads only each hit's position within its own
+ranking. Not invented here: `RrfMerger` already existed, and `EnsembleBehavior`'s client-side hybrid
+path already returns RRF scores at this same boundary, so the score scale callers see is consistent
+rather than novel. The no-expansion case stays a pass-through with scores untouched.
+
+**RE-MEASURED FOR $0.00 — 657 cached calls, all replayed, cache unchanged at 647 entries.**
+
+| | before | after | control |
+| --- | --- | --- | --- |
+| nDCG@10 | 0.70219 | **0.71913** | 0.67742 |
+| Δ | +0.02477 | **+0.04171** | — |
+
+**The largest gain any technique has had on SciFact**, ahead of HyDE's +0.03647. **The reading
+inverts**: the old figure was rightly read as "a larger search, not a better ranker" because the page
+was uncapped; both sides now return at most 250, so the gain is bought by ordering the same-sized
+page better. That it went UP when the over-fetch was removed is the strongest evidence for what #475
+claimed about the old ordering.
+
+**The cell's own mechanism guard had to be rewritten, because this fix disabled it.** It counted
+expansion as "the deep page is longer than the control's", which the cap makes false by
+construction: the first re-run reported 0 of 300 expanded while all 657 calls replayed. It now
+compares pages by content and order — immune to the cap, and stronger, since a run finding nothing
+new would have passed the length check. Both agree at 184 of 300.
+
+**Not closed:** reproducing the replay needs a pristine worktree; the primary checkout reports 0
+hits on identical content, unexplained after ruling out cwd, line endings, build staleness and
+package resolution. Filed as **#495**. It cannot spend — `RefuseOnMiss` throws rather than calling.
+
+### Phase 6.2.19: A Fit May Contain One Lonely Component [status: complete 2026-09-07 — closes #337, the residue 6.2.16 left]
+**Surface:** Backend
+**HelpWanted:** no
+**Completed:** 2026-09-07
+
+**Goal:** close the near-duplicate inflation #337 filed, which 6.2.16's data-scaled floor did not
+reach and which a characterisation test has been pinning ever since.
+
+**BOTH THE PREDICTED MECHANISM AND THE CHARACTERISATION WERE WRONG, AND MEASURING SAID SO.**
+
+#337 — and this project's own comment on it — expected components of near-identical points to survive
+as collapsed PAIRS that the degenerate-fit rule misses because they hold two points, and prescribed
+plumbing per-component variances into the rejection path. **The winning fit contains no such pairs.**
+At k = 10 its components are sized `4,1,1,1,2,1,6,1,2,1`: the pairs are split, and **six singletons**
+carry the likelihood. The old rule tolerated them because it rejects only when *most* points are
+alone, and six of twenty is not most.
+
+The variance plumbing was built, measured to be unnecessary, and **reverted rather than shipped as
+unused fields**. It could not have worked anyway: on two tight blobs the *legitimate* components are
+also pinned to the floor, so rejecting floored components would reject the fit #337 explicitly
+required to keep working.
+
+**The characterisation was off too.** #337 said k pins to the ceiling, which held at the single
+`maxK` it was measured at. Given more room the old code returned 11 at both 15 and 19 — it saturated
+just above, rather than tracking forever.
+
+**The fix is 14 lines: at most one lonely component.** The boundary is inherited, not tuned — the
+existing rule already justified tolerating a lone outlier as a fact about the data, and two is the
+smallest count that cannot be one.
+
+| | maxK 10 | maxK 15 | maxK 19 |
+| --- | --- | --- | --- |
+| before | 10 | 11 | 11 |
+| after | **7** | **7** | **7** |
+
+**The caller's ceiling no longer chooses the answer**, which is the defect. The replacement test
+asserts that stability rather than pinning 7, because the number is the measurement and the
+stability is the property.
+
+**One mutation survived and was reported rather than covered.** Deleting the empty-component
+rejection entirely changes no test. It appears defensive rather than load-bearing — an empty
+component adds parameters without likelihood, so BIC already avoids it — but no dataset was found
+where the mutant differs, so any test written would have passed with the rule deleted. Filed as
+**#498**.
+
+### Phase 6.2.20: The Airtable Benchmark Discrepancy, Explained [status: complete 2026-09-08 — closes #207; a recording error, not a regression]
+**Surface:** Benchmarks
+**HelpWanted:** no
+**Completed:** 2026-09-08
+
+**Goal:** answer the question #207 actually asked — not whether the new Airtable figures are right,
+but **what the old ones were measuring**, since two of the three normal explanations were already
+excluded by evidence and nobody had offered a mechanism for the third.
+
+**THE ANSWER: ONE CONNECTOR, TWO HARNESS MODES, ONE TABLE.** `b202d5ec` (2026-04-13) introduced
+`[IterationSetup]` to the mocked connectors and published a table in which the three `Airtable — *`
+rows still carry `[GlobalSetup]` numbers while the Shared Ingestion `Airtable` row carries
+`[IterationSetup]` numbers.
+
+Measured 2026-09-08 on code byte-unchanged since that commit:
+
+| `AirtableBenchmarks` | Mean | Allocated |
+| --- | ---: | ---: |
+| as it ships, `[IterationSetup]` | 149.9 μs | 75.89 KB |
+| same code, reverted to `[GlobalSetup]` | **21.9 μs** | 57.17 KB |
+
+**The mode alone is worth 6.9x**, and the `[GlobalSetup]` figures reproduce what `b202d5ec`'s
+*parent* published — 22.8, 37.2 and 24.0 μs — to within 0.7–6%. The 4–5x was never a regression.
+A residual ~+24% allocation since April is real and matches the per-record metadata `cabe77a8` and
+`a89f779e` added.
+
+**THREE OF THE ISSUE'S OWN CLAIMS WERE WRONG, AND FINDING THAT OUT WAS THE WORK.**
+
+1. **"The rows may never have been re-run."** They were. `Airtable — DeltaWithFilter`'s allocation
+   moved **48.53 → 48.54 KB** across that commit — ten bytes, which no copy-paste produces. The
+   issue checked two rows' allocations, found them unchanged, and did not check the third.
+2. **The equivalence was only ever verified at HEAD.** The issue cites today's line numbers to argue
+   the two benchmarks measure the same work. Verified at `b202d5ec` itself: same factory defaults,
+   `[IterationSetup]` present in both classes, bodies character-identical apart from names.
+3. **Its step 1 is not executable.** "Check out `b202d5ec` and re-run" fails — the commit's package
+   references float (`Version="0.*"`, `"1.*"`), so it now resolves today's `ZeroAlloc.ValueObjects`
+   generator, whose emitted `ToString` collides with the April source. Patching past the dead
+   generator path and the CVE-as-error failures still ends there, and a sufficiently patched build
+   would not be the April build anyway.
+
+**SETTLED BY AN INVARIANT INSTEAD OF A REBUILD.** `AirtableBenchmarks` calls
+`ConnectorIngestionBenchmarks.CreateAirtableProvider` directly, so both rows exercise the same
+factory with the same arguments: provider changes, SDK changes and machine changes move them
+together, and **the ratio between them cannot change**. Neither benchmark file has been touched
+since April. Yet the ratio went **5.4 → 1.015**, with allocation now identical to the byte. A ratio
+that cannot move, moved — so at least one April figure was not produced by the April run.
+
+**A GUARD NOW ENFORCES IT, BECAUSE NOTHING READ THIS PAGE.** No test in the repository opened
+`docs/reference/benchmarks.md`, which is how a mixed-mode table survived four months and a 1 μs
+transcription slip survived three weeks. `BenchmarkSelfConsistencyTests` asserts the two rows
+publish the same allocation — allocation rather than mean, because means drift ~8% between sessions
+and allocation does not. Two mutations: April's own values fail it with the right message, and a
+broken parse fails loudly rather than passing silently.
+
+**Also fixed:** `Airtable — DeltaWithFilter` published 121.0 μs where the 2026-08-14 artifact says
+121,986.667 ns = **122.0 μs**. Verified against the artifact rather than taken from the issue.
+
+**What the guard cannot do:** both rows re-recorded in the same wrong mode would satisfy it. It says
+the page does not contradict itself, not that the numbers are right. Comparing the page against a
+run is impossible here — BenchmarkDotNet's artifacts are not tracked.
+
+### Phase 6.2.21: A Failing Vision Model Says So [status: complete 2026-09-08 — closes #497; the larger defect it exposed is filed as #504]
+**Surface:** Parsers
+**HelpWanted:** no
+**Completed:** 2026-09-08
+
+**Goal:** stop a vision-provider failure arriving as an exception nobody can catch.
+
+**What a caller actually saw.** OpenRouter answers `finish_reason: "error"` on an upstream failure
+and the OpenAI SDK throws `ArgumentOutOfRangeException: Unknown ChatFinishReason value` from a
+validation helper — thrown by an assembly this library depends on transitively, indistinguishable
+from a genuine argument bug in the caller's own code, and named in no contract Rag.NET publishes. A
+second, unrelated mode arrives as `ClientResultException: HTTP 429`. One catch could express
+neither.
+
+**Now `VisionDescriptionException`**, carrying the file name so a handler can act on it without
+parsing prose, preserving the inner exception, and logged at warning. Cancellation propagates
+untouched.
+
+**It does not swallow, deliberately.** An empty description would ingest the image as a document
+with no content: retrievable, and indistinguishable from an image the model genuinely found nothing
+in. A parser that fails loudly costs one document; a parser that fails quietly costs the corpus's
+credibility. That alternative is one of the four mutations, and two guards reject it.
+
+**The tests run without a network, which is the point.** The defect was found by a live integration
+test that failed twice in one afternoon with two different causes — a rate nobody controls, and a
+bug that would otherwise be re-diagnosed every time it appeared. Both observed shapes are
+reproduced from a substitute.
+
+Four mutations, each caught by its own guard: no translation, cancellation catch removed, inner
+exception dropped, and failure swallowed into an empty description.
+
+**THE ISSUE'S SEVERITY CLAIM WAS WRONG, AND CHECKING IT FOUND THE REAL DEFECT.** #497 implied a
+parse failure might abort more than the file. It does not: `ParseBehavior` does not catch, but
+`PipelineIngestor` catches per document and returns a failed `Result`, so the batch continues.
+
+Reading that catch showed what does go wrong — filed as **#504**:
+
+```csharp
+catch (Exception ex)
+    return Result<IngestionResult, RagError>.Failure(new RagError.StorageFailed(ex));
+```
+
+**Every non-parser ingestion failure is reported as `StorageFailed`**, including a rate-limited
+vision model at parse time. `RagError.TransportFailed`'s own remarks draw the line — *"Distinct
+from `StorageFailed`, which covers failures of a `IVectorStore`/persistence operation"* — so the
+mapping contradicts the union's documentation. An operator seeing it goes and inspects a vector
+store that was never asked to do anything.
+
+**Not fixed here, on purpose.** The honest fix needs two API decisions that belong to the operator:
+whether `RagError` gains a case (breaking for exhaustive switches — cheap now, not later), and
+which of the 80 `IChatClient` consumers translate. Pattern-matching SDK exception types inside core
+would mean depending on every provider SDK, which is worse than the problem.
+
+### Phase 6.2.22: Why the Empty-Component Rule Stays [status: complete 2026-09-08 — closes #498; measured, kept, and deliberately left untested]
+**Surface:** Backend
+**HelpWanted:** no
+**Completed:** 2026-09-08
+
+**Goal:** answer a mutation that survived phase 6.2.19's run. Deleting `IsDegenerateFit`'s
+empty-component rejection changed no test, and #498 asked the only question that settles it: **can
+BIC ever prefer a fit with an empty component?**
+
+**MEASURED, NOT REASONED.** 840 synthetic datasets built to provoke exactly that — tight blobs
+given more components than they can fill, exact duplicates, scale extremes, and a diffuse
+background around tight clusters, the last chosen because a broad component can hold real mixture
+weight while being **no point's argmax**: zero hard assignments, so the rule fires, yet still
+lifting the likelihood, so BIC might want it.
+
+| | |
+| --- | ---: |
+| candidate fits examined | 9,280 |
+| fits containing an empty component | **4,131 (44.5%)** |
+| datasets where disabling the rule changes `SelectK` | **0** |
+
+**NEITHER OF THE ISSUE'S TWO PROPOSED OUTCOMES WAS RIGHT.** It offered "the rule is unreachable, so
+document or delete it" or "there is a dataset where BIC prefers such a fit, and that dataset is the
+missing test". The rule is reached constantly — nearly half of all candidates — and there is no such
+dataset, because BIC declines those fits on its own: an empty component contributes no likelihood
+while still adding `2d + 1` parameters, so the penalty rises with nothing to offset it.
+
+**What the rule actually buys is the `continue`.** Rejecting here skips `ComputeLogLikelihood` for
+44.5% of candidate fits. That is the reason to keep it now that the correctness argument is known
+to be redundant, and it is a better reason than the one the code gave.
+
+**NO TEST WAS ADDED, ON PURPOSE.** Deleting the rejection is behaviourally invisible through every
+public surface — `SelectK` returns the same k either way — so any test written against it would
+pass with the rule removed. That is the kind of guard this repository treats as worse than none.
+The mutation survives deliberately, and the remarks on `IsDegenerateFit` now carry the figures so a
+future mutation run finds the answer rather than re-deriving it.
+
+**The redundancy is conditional and the note says so.** It holds only while the scoring is BIC with
+that penalty term. Change the scoring and the rule becomes load-bearing again.
 
 ### Phase 6.3: Release v1.0 [status: pending — but its first work is DONE and was done before this milestone opened: 71 packages are live on nuget.org at 0.1.0 since 2026-08-11, so the account, the key and every package ID are settled. What remains is the v1.0 tag itself. ~~Now gated on 6.2.3~~ — **that gate cleared 2026-08-21** when #340 merged. What still gates the tag is 6.1's recordings, kept as a gate by the operator's 2026-08-20 decision, and 6.2.1's sweep]
 **Goal:** Tag v1.0, plus whatever release mechanics Phase 4.1's packaging pass leaves to

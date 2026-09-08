@@ -37,6 +37,13 @@ internal static class GaussianMixtureModel
     // and the reason a lone undersized component does not by itself disqualify a candidate.
     private const int MinimumComponentPoints = 2;
 
+    /// <summary>
+    /// How many components owning a single point a fit may contain before it is rejected (#337).
+    /// One isolated point is a fact about the data; several is a fit coming apart. See
+    /// <see cref="IsDegenerateFit"/> for why the boundary sits here rather than at a fraction.
+    /// </summary>
+    private const int MaximumLonelyComponents = 1;
+
     internal static GmmResult Fit(float[][] data, int k, int maxIterations = 100, double tolerance = 1e-6)
     {
         int n = data.Length;
@@ -93,6 +100,27 @@ internal static class GaussianMixtureModel
     /// An empty component means <paramref name="k"/> overstates the model actually fitted, so its
     /// parameter count — and therefore its penalty — is simply wrong for what was fitted.
     ///
+    /// <b>That rejection is redundant with BIC, and it is kept for cost rather than correctness
+    /// (#498).</b> Measured over 840 synthetic datasets — tight blobs given more components than
+    /// they can fill, exact duplicates, scale extremes, and a diffuse background around tight
+    /// clusters — <b>4,131 of 9,280 candidate fits (44.5%) contain an empty component, and
+    /// disabling this rejection changes <see cref="SelectK"/>'s answer on none of the 840</b>. BIC
+    /// declines those fits on its own: an empty component contributes no likelihood while still
+    /// adding <c>2d + 1</c> parameters, so the penalty rises and nothing offsets it.
+    ///
+    /// So the rule is neither unreachable nor load-bearing. What it buys is the <c>continue</c> in
+    /// <see cref="SelectK"/>: rejecting here skips <c>ComputeLogLikelihood</c> for nearly half of
+    /// all candidate fits, which is the reason to keep it now that the correctness argument is
+    /// known to be redundant.
+    ///
+    /// <b>No test covers it, and none can.</b> Deleting the rejection is behaviourally invisible
+    /// through every public surface — <see cref="SelectK"/> returns the same k either way — so any
+    /// test written against it would pass with the rule removed, which is the kind of guard this
+    /// repository treats as worse than none. The mutation survives on purpose; this paragraph is
+    /// what a future mutation run should find instead of re-deriving it. The redundancy holds only
+    /// while the scoring is BIC with that penalty term: change the scoring and this becomes
+    /// load-bearing again.
+    ///
     /// A component owning a single point has no spread to estimate: its variance collapses to the
     /// floor and its log-density at its own mean climbs accordingly. The figures below were
     /// measured against the ORIGINAL absolute floor of <c>1e-6</c>, which reached roughly +47.9
@@ -111,6 +139,27 @@ internal static class GaussianMixtureModel
     /// fit containing one left k = 1 as the only candidate and no tree could be built at all. What
     /// distinguishes the #333 pathology is not that some component is alone but that most points
     /// are — a fit where half the data sits in components of one is fragmentation, not clustering.
+    ///
+    /// <b>The share test alone was too lenient, which is #337.</b> On 20 points holding five
+    /// near-identical pairs the winning fit was sized 4,1,1,1,2,1,6,1,2,1 — <b>six singletons</b>,
+    /// but only six of twenty points, so "most points are alone" was false and the fit stood. k rose
+    /// from 10 to 11 as <c>maxK</c> went from 10 to 15, meaning the caller's ceiling was choosing
+    /// the answer. So a count of lonely components is applied as well:
+    /// <see cref="MaximumLonelyComponents"/>, at most one.
+    ///
+    /// <b>The boundary is one, and that is inherited rather than tuned.</b> This rule's predecessor
+    /// already justified tolerating a lone outlier, so one is the number that keeps the outlier case
+    /// working; two is the smallest count that cannot be a single fact about the data. It is the
+    /// same claim the share test makes, applied where a fraction of a small n cannot express it.
+    ///
+    /// <b>#337 predicted a different mechanism, and it was measured to be the wrong one.</b> The
+    /// issue expected components of near-identical points to survive as collapsed PAIRS that this
+    /// rule would miss because they hold two points, and proposed plumbing per-component variances
+    /// in to reject them. The winning fit contains no such pairs — they are split into singletons —
+    /// so variances are not consulted here and the plumbing was reverted after being built. A
+    /// per-component variance test could not have separated the two cases anyway: on two tight blobs
+    /// the legitimate components are also pinned to the floor, so rejecting floored components would
+    /// reject the fit #337 explicitly required to keep working.
     ///
     /// Counts hard assignments rather than summing responsibilities. It is exact: a component that
     /// genuinely owns exactly two points sums its responsibilities to slightly under two (measured:
@@ -132,6 +181,7 @@ internal static class GaussianMixtureModel
         }
 
         int pointsInRealComponents = 0;
+        int lonelyComponents = 0;
         for (int j = 0; j < k; j++)
         {
             if (counts[j] == 0)
@@ -143,6 +193,15 @@ internal static class GaussianMixtureModel
             {
                 pointsInRealComponents += counts[j];
             }
+            else
+            {
+                lonelyComponents++;
+            }
+        }
+
+        if (lonelyComponents > MaximumLonelyComponents)
+        {
+            return true;
         }
 
         return pointsInRealComponents * 2 <= gmmResult.Assignments.Length;
