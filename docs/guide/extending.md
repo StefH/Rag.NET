@@ -216,9 +216,52 @@ forward it, so an `is IChunkLookup` test alone would report the capability for e
 store. Leave the default `true` in your own store; `ResilientVectorStore` overrides it to report
 what its inner store can do, and `FederatedVectorStore` reports whether *any* member can.
 
-**Currently implemented by:** `InMemoryVectorStore`, and forwarded by `ResilientVectorStore` and
-`FederatedVectorStore`. The remote backends (Qdrant, Pinecone, Weaviate, Redis, Chroma, PgVector,
-Azure AI Search) do not implement it yet — see #318.
+**Currently implemented by:** `InMemoryVectorStore`, `PgVectorStore`, `QdrantVectorStore`,
+`RedisVectorStore`, `WeaviateVectorStore`, `PineconeVectorStore`, `ChromaVectorStore`
+and `AzureAISearchVectorStore` — that is every store — and forwarded by
+`ResilientVectorStore` and `FederatedVectorStore` (#318).
+
+**How the keys are matched differs per backend, and the difference is not cosmetic.** PgVector zips
+the pairs in SQL with `unnest` over two arrays. Qdrant cannot use point ids at all — they are random
+GUIDs, unrelated to the chunk's identity — so it filters on the `document_id` and `chunk_index`
+payload fields, one nested `must` per key inside a single `should`. Redis is the inverse again: the
+key *is* the identity, so it reads hashes directly and never queries the index at all. Weaviate is a
+GraphQL `where` of Or-composed And pairs, built as its own query because a keyed read has no vector,
+no hybrid argument and no `_additional` to select.
+
+Pinecone and Chroma are like Redis: their record ids are derived (`documentId:chunkIndex`), so the
+lookup is a fetch by id with no query and no filter. Chroma needed a `/get` endpoint added to its
+client first — a derived id is no use if the API cannot ask for one, and its `/get` returns *flat*
+arrays where `/query` returns one row per query embedding.
+
+Azure AI Search needed its **document key** changed before a lookup was expressible at all. The key
+was a random GUID, so identity lived only in fields — and filtering on `chunk_index` is impossible
+because that field is not `IsFilterable`. The key is now
+`Base64Url(documentId + "
+" + chunkIndex)`: Base64Url because Azure permits only letters, digits,
+`_`, `-` and `=` in a key, so raw concatenation fails outright on an id containing a slash, a space
+or non-ASCII text. The same change made writes upsert rather than duplicate (#517).
+
+**If the backend's query is built by string concatenation, escape the document id.** Weaviate's
+lookup does; removing that escaping passed every test until one was added using an id containing a
+quote. A malformed query is the good outcome there.
+
+**Construct ids; do not parse them.** Where the id is derived from the identity, building one is
+exact — a chunk index cannot contain the separator — but recovering the identity back out of an id
+is not, because a document id can. Pinecone's store refuses to parse for that reason and reads the
+identity from metadata instead.
+
+Whatever the mechanism, **the pairs must be matched as pairs**: conditions on the two fields
+independently return another document's chunk at the same index. And **a negative `chunk_index` has
+to work** — `GraphEntityExtractionBehavior` assigns `-(i + 1)` to synthetic entity and relationship
+chunks, so those are exactly the rows this capability is asked for. On three backends so far, an
+implementation assuming unsigned indices passed every test except that one.
+
+PgVector matches the pairs in the database rather than expanding them into the SQL: `unnest` over
+two arrays yields one row per position, so a single statement with two parameters serves any key
+count. Building an `IN ((..),(..))` list instead produces different query text for every key count,
+which defeats the plan cache. Whatever a backend's equivalent is, **the pairs have to be matched as
+pairs** — matching `chunk_index` alone returns another document's chunk at that index.
 
 ### Optional: `ICollectionManageable`
 

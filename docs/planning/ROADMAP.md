@@ -6549,6 +6549,510 @@ future mutation run finds the answer rather than re-deriving it.
 **The redundancy is conditional and the note says so.** It holds only while the scoring is BIC with
 that penalty term. Change the scoring and the rule becomes load-bearing again.
 
+### Phase 6.2.23: A Model Failure Is Not a Storage Failure [status: complete 2026-09-08 — closes #504; breaking, and taken now for that reason]
+**Surface:** Core
+**HelpWanted:** no
+**Completed:** 2026-09-08
+
+**Goal:** `PipelineIngestor` ended in a catch-all that mapped every non-parser failure to
+`RagError.StorageFailed` — whose own remarks scope it to `IVectorStore`/persistence. A
+rate-limited vision model at parse time therefore sent an operator to inspect a store that had not
+been asked to do anything.
+
+**Adds `RagError.ModelCallFailed`**, plus `ModelCallException` in Abstractions as the marker the
+ingestor maps. **Breaking for callers writing exhaustive switch expressions**, which is the reason
+to do it now rather than after 1.0; the operator chose this over reusing `TransportFailed`/
+`HttpFailed`, whose documented meanings ("no HTTP response was received") a 429 contradicts.
+
+**Classification happens where the knowledge is.** Only the component that made the call knows a
+model was involved. Core deliberately does not pattern-match `ClientResultException`,
+`RequestFailedException` and their equivalents — that would mean referencing every provider SDK
+from `Rag.NET`, which is worse than the problem.
+
+**THE SCOPE WAS FAR SMALLER THAN THE ISSUE CLAIMED.** #504 estimated that most of the ~9
+ingestion-path model callers would need translating. Checked one by one: proposition and resume
+chunking, graph entity extraction, mind-map extraction, both LLM sanitisers and core's own metadata
+extraction **all catch locally and degrade**, so their failures never reach the ingestor and were
+never misclassified. Only `RaptorIngestionBehavior` and `CommunityDetectionBehavior` propagate.
+
+**AND WRAPPING THOSE TWO WAS WRONG — THE SWEEP CAUGHT IT, NOT REVIEW.** Their `IChatClient` is
+frequently not a provider: under the benchmark harness it is a `GraphExtractionCache` opened
+refuse-on-miss, which throws **instead of** calling the model, carrying a message that is the
+experiment's protection. The wrap relabelled that as *"the model could not generate a community
+report"* when no model was called, and two guards that pin the refusal by type failed. Reverted.
+
+**The same hazard applies to `BudgetExceededException`**, which `FallbackChatClient.IsTransient`
+already pins by type so a blown budget cannot trigger a retry past the limit. Wrapping it would
+have invited exactly that. The vision parser now rethrows both cancellation and a blown budget
+untouched before translating anything else, with a guard for each.
+
+**So a call-site `catch` is the wrong seam wherever the client may be decorated**, and extending
+this to the two propagating behaviours needs something that can tell a decorator's refusal from a
+provider failure. That does not exist yet and is recorded on #504 rather than guessed at.
+
+Mutations: deleting the mapping branch — the variant that actually compiles — fails both mapping
+tests. A third guard pins that unrelated failures still map to `StorageFailed`, so widening the
+branch cannot pass.
+
+### Phase 6.2.24: Keyed Chunk Lookup on PgVector [status: complete 2026-09-08 — #318, first of seven backends]
+**Surface:** Storage
+**HelpWanted:** no
+**Completed:** 2026-09-08
+
+**Goal:** GraphRAG's local search puts the source chunks behind its selected entities in front of
+the model, chosen by graph provenance and never by score — so it reads by key or not at all. Only
+`InMemoryVectorStore` implemented `IChunkLookup`, which means **every remote store returned an empty
+Sources section and left half a 12,000-token context budget unspent**, silently: an empty section
+looks like a graph with no sources rather than a store that cannot answer.
+
+**PgVector matches the pairs in the database.**
+
+```sql
+FROM rag_chunks c
+JOIN unnest($1::text[], $2::int[]) AS k(document_id, chunk_index)
+  ON c.document_id = k.document_id AND c.chunk_index = k.chunk_index
+```
+
+`unnest` over two arrays yields one row per position, so the pairs match as pairs in one statement
+with two parameters, whatever the key count. An `IN ((..),(..))` list would emit different query
+text for every distinct count — defeating the plan cache and approaching the parameter limit on the
+few-dozen-key batches local search actually sends. The join is the filter, so a missing key needs no
+handling, which is the contract: a document deleted since extraction leaves the graph naming chunks
+that no longer exist.
+
+**Six tests against real PostgreSQL, three mutations, each caught by its own test:**
+
+| mutation | caught by |
+| --- | --- |
+| `chunk_index >= 0` — the unsigned assumption | `NegativeChunkIndicesAreKeysLikeAnyOther` |
+| pairs matched independently of the document | the pairing test, and the absence test |
+| metadata dropped from the projection | `MetadataComesBackWithTheChunk` |
+
+**The first is the one that matters: every other test still passes with it in place.**
+`GraphEntityExtractionBehavior` assigns `-(i + 1)` to synthetic entity and relationship chunks, so
+negative indices are exactly the rows GraphRAG asks for — a backend filter assuming unsigned would
+return nothing for precisely the lookups this capability exists to serve.
+
+**The issue's stated blocker was already disproved.** #318 says the seven backends "cannot be
+exercised here without accounts", which was the reason they were not implemented alongside the
+interface. All seven were run locally on 2026-09-08 against existing container fixtures; that is
+what lets each implementation be written against a real backend instead of shipped unverified.
+
+**Qdrant is not a copy of this, which is why it is not in here.** `QdrantVectorStore.CreatePointId`
+returns `Guid.NewGuid()`, so point ids are random rather than derived from the key: its lookup has
+to be a payload filter over `document_id`/`chunk_index`, not an id fetch. Real design per backend
+rather than a translation of the SQL, and recorded rather than rushed.
+
+**Remaining: Qdrant, Pinecone, Weaviate, Redis, Chroma, Azure AI Search.** The last carries its own
+caveat — the simulator implements no OData filters, so it may not be exercisable locally even though
+its project runs.
+
+### Phase 6.2.25: Keyed Chunk Lookup on Qdrant [status: complete 2026-09-08 — #318, second of seven]
+**Surface:** Storage
+**HelpWanted:** no
+**Completed:** 2026-09-08
+
+**Goal:** the second backend, and the one 6.2.24 deliberately left out on the suspicion that it was
+not a translation of the SQL. It was not.
+
+**QDRANT CANNOT ANSWER THIS BY POINT ID.** `CreatePointId` returns `Guid.NewGuid()`, so a point's id
+carries no relationship to its `(document_id, chunk_index)` — Qdrant is told the identity only as
+payload. The lookup is a `Scroll` over a filter, and the id is never consulted. A subclass
+overriding `CreatePointId` to something derived does not change that, because the payload is written
+either way.
+
+**The pairs are matched as pairs by nesting:**
+
+```csharp
+var pair = new Filter();
+pair.Must.Add(MatchKeyword("document_id", key.DocumentId));
+pair.Must.Add(Match("chunk_index", key.ChunkIndex));
+filter.Should.Add(new Condition { Filter = pair });
+```
+
+One `must` of both fields per key, inside a single `should`. **Flattening those conditions into the
+`should` is the natural mistake** — it matches any document with a requested index — and it is the
+first of three mutations, caught by both the pairing test and the negative-index test.
+
+`Scroll` rather than `Query` because there is no query vector: the premise of this capability is
+that no vector returns these chunks. The limit is the key count, since `(document_id, chunk_index)`
+is unique per stored chunk.
+
+**Six tests against a real Qdrant, green on the first run. Three mutations, each caught:**
+
+| mutation | caught by |
+| --- | --- |
+| pairs flattened into one `should` | the pairing test, and the negative-index test |
+| index ignored, document only | the same two |
+| metadata dropped from the payload mapping | `MetadataComesBackWithTheChunk` |
+
+**Also shares the payload mapping.** Search and lookup read different point types — `ScoredPoint`
+and `RetrievedPoint` — off the same payload fields, so `MapChunk` is now one method. Two copies of
+"what a stored chunk is" would drift, and the drift would show up as a lookup that disagrees with
+search about the same row.
+
+**Twice now the mechanism has differed from what the previous backend suggested** — SQL row-zipping,
+then a payload filter because ids are random. The remaining five are read individually rather than
+translated.
+
+**Remaining: Pinecone, Weaviate, Redis, Chroma, Azure AI Search.** The last still carries its own
+caveat: the simulator implements no OData filters, so it may not be exercisable locally even though
+its project runs.
+
+### Phase 6.2.26: Keyed Chunk Lookup on Redis [status: complete 2026-09-08 — #318, third of seven]
+**Surface:** Storage
+**HelpWanted:** no
+**Completed:** 2026-09-08
+
+**Goal:** the third backend, and a third distinct mechanism.
+
+**Redis is the inverse of Qdrant.** A chunk's key *is* its identity — `KeyFor` composes
+`prefix + documentId + ":" + chunkIndex` — so the lookup is a direct hash read per key and never
+touches RediSearch. The reads are issued together and awaited together, which StackExchange.Redis
+pipelines onto one connection: roughly one round trip's latency for the few-dozen-key batches local
+search sends, rather than one per key.
+
+**It also sidesteps escaping that the search path needs.** The store escapes the characters
+RediSearch treats as syntax before putting a document id in a TAG filter. A direct key read parses
+nothing, so an id containing `:` or `-` matches itself — pinned by
+`ADocumentIdContainingSearchSyntaxIsFoundAnyway`.
+
+**Seven tests against real Redis. Three mutations, each caught:**
+
+| mutation | caught by |
+| --- | --- |
+| index dropped from the key composition | three tests |
+| index made unsigned (`abs`) | **only** the negative-index test |
+| empty hashes no longer skipped | the absence test |
+
+**Three backends in, the unsigned-index mutation has been caught only by the negative-index test
+every time.** It is the difference between a working implementation and one that returns nothing for
+exactly the rows GraphRAG asks for, and nothing else notices.
+
+**FOUND RATHER THAN FIXED: `RedisVectorStore` PERSISTS NO METADATA.** `StoreAsync` writes only
+`document_id`, `chunk_index`, `text` and the embedding, so neither search nor this lookup can return
+any. `MetadataIsAbsentBecauseTheStorePersistsNone` asserts that rather than skipping the case, so the
+limitation is visible where someone would look for it and the test fails the day `StoreAsync` starts
+storing metadata — pointing at the lookup that should then return it. Worth its own issue: GraphRAG
+local search puts these chunks in front of a model.
+
+**Chroma was scoped out after reading it.** Its record id is derived like Redis's
+(`documentId:chunkIndex`), so it looks like the same shape — but its HTTP client has no `get`
+endpoint, so one has to be added. That is more than a translation and is left for its own change.
+
+**Remaining: Pinecone, Weaviate, Chroma, Azure AI Search.**
+
+### Phase 6.2.27: Keyed Chunk Lookup on Weaviate [status: complete 2026-09-08 — #318, fourth of seven]
+**Surface:** Storage
+**HelpWanted:** no
+**Completed:** 2026-09-08
+
+**Goal:** the fourth backend, and a fourth mechanism. Weaviate has object UUIDs this store never
+derives from the chunk, so the identity lives in properties and the lookup is a GraphQL `where` of
+Or-composed And pairs. It needs its own query builder rather than the search one: a keyed read has
+no vector, no hybrid argument, and no `_additional` to select.
+
+**MUTATION TESTING FOUND A MISSING GUARD, NOT A PASSING ONE.** Replacing `GraphQlString(...)` with
+raw interpolation of the document id **survived all eight tests** — none of their ids contained a
+quote or backslash, so nothing exercised the escaping. That is a malformed query at best and an
+injected one at worst.
+
+The escaping itself was correct, copied from the store's existing helper. The tests simply never
+verified it, and without the mutation this would have shipped believing they did.
+`ADocumentIdContainingGraphQlSyntaxIsFoundAnyway` now uses an id containing both, and catches it.
+
+**Four mutations, each caught:**
+
+| mutation | caught by |
+| --- | --- |
+| pairs flattened (`And` → `Or`) | three tests |
+| index made unsigned (`abs`) | **only** the negative-index test |
+| document id no longer escaped | the new escaping test (survived before it) |
+| — | — |
+
+**Two guards came from reading the schema rather than the contract.** `document_id` is declared with
+`field` tokenization so an `Equal` matches the whole id rather than its word tokens — without it
+`doc-1` matches `doc-2` through their shared `doc` token, which is now pinned. And `chunk_index` is
+a Weaviate `int`, so `valueInt` takes a negative directly.
+
+**Four backends in, the pattern holds and so does the exception.** The mechanisms have differed
+every time — SQL row-zipping, payload filter, direct key read, GraphQL where — while the
+negative-index test has been the only thing catching the unsigned-index mutation on all four.
+
+**Remaining: Pinecone, Chroma, Azure AI Search.**
+
+### Phase 6.2.28: Keyed Chunk Lookup on Pinecone [status: complete 2026-09-08 — #318, fifth of seven]
+**Surface:** Storage
+**HelpWanted:** no
+**Completed:** 2026-09-08
+
+**Goal:** the fifth backend, and the second of the derived-id shape. `RecordId` composes
+`documentId + ":" + chunkIndex`, so the key is reconstructible and the lookup is a `Fetch` — no
+query vector, no filter. Same shape as Redis; the opposite of Qdrant, whose ids are random GUIDs.
+
+**THE INTERESTING CONSTRAINT IS DIRECTIONAL.** `BuildChunk` deliberately refuses to recover identity
+from a record id, because a document id may itself contain the `:` separator — it reads
+`document_id` and `chunk_index` out of metadata and throws if they are missing. Constructing an id
+has no such ambiguity, since a chunk index cannot contain a colon. So this lookup builds ids and
+never parses them, and the identity still comes back out of metadata.
+
+That is pinned by `ADocumentIdContainingTheSeparatorRoundTrips`, using an id with two colons. It
+catches the mutation that recovers identity by splitting the record id — the exact shortcut the
+store's own remarks warn against.
+
+**Seven tests against Pinecone Local, three mutations, each caught:**
+
+| mutation | caught by |
+| --- | --- |
+| index made unsigned (`abs`) | **only** the negative-index test |
+| index dropped from the record id | three tests |
+| identity parsed from the record id | the separator test, and the metadata test |
+
+**One index for the whole class, deleted in teardown.** Pinecone Local allocates one data-plane port
+per index from a range of ten, so an index leaked by a failing test starves later ones. Each test
+uses its own document ids rather than its own index.
+
+**Five backends in, the exception still holds.** The mechanisms have differed at every one — SQL
+row-zipping, payload filter, direct key read, GraphQL where, id fetch — while the negative-index
+test has been the only thing catching an unsigned-index implementation on all five.
+
+**Remaining: Chroma and Azure AI Search.** Chroma needs a `get` endpoint added to its HTTP client;
+Azure AI Search may not be locally exercisable at all, since its simulator implements no OData
+filters.
+
+### Phase 6.2.29: Keyed Chunk Lookup on Chroma [status: complete 2026-09-08 — #318, sixth of seven]
+### Phase 6.2.30: The Azure AI Search Key Carries Identity [status: complete 2026-09-08 — #318's last backend, and #517]
+**Surface:** Storage
+**HelpWanted:** no
+**Completed:** 2026-09-08
+
+**Goal:** the backend that needed a new endpoint, deliberately left out of 6.2.26 rather than
+rushed.
+
+**IT LOOKED LIKE REDIS AND WAS NOT.** Chroma's record id is derived the same way —
+`RecordId` composes `documentId + ":" + chunkIndex` — so it appeared to be another direct fetch. But
+`IChromaApi` carried only `/query` and `/delete`, and **`/query` cannot serve a keyed read at all**:
+local search picks its chunks by graph provenance and no embedding returns them. A derived id is no
+use if the API cannot ask for one.
+
+**So this adds `/get`**, with `ChromaGetRequest` and `ChromaGetResponse`.
+
+**The response type is separate from `ChromaQueryResponse` for a concrete reason.** `/query` answers
+per query embedding, so its arrays are arrays of rows and the store takes the first; `/get` answers
+for one set of ids, so its arrays are the records themselves. Modelling `/get` with the query type
+would have compiled and then read the first record's fields as if they were a whole row.
+
+**Same directional constraint as Pinecone.** `BuildChunk` refuses to recover identity from a record
+id because a document id may contain the `:` separator, so ids are constructed and never parsed, and
+the identity comes back out of metadata. Pinned by a test using an id with two colons.
+
+**Seven tests against a real Chroma, green on the first run. Four mutations, each caught:**
+
+| mutation | caught by |
+| --- | --- |
+| index made unsigned (`abs`) | **only** the negative-index test |
+| index dropped from the record id | three tests |
+| identity parsed from the record id | the separator test, and the metadata test |
+| `metadatas` dropped from the include list | five tests |
+
+**Six backends in, six different mechanisms, and one constant.** SQL row-zipping, payload filter,
+direct key read, GraphQL where, id fetch, and now an endpoint that had to be added. Not one was a
+translation of the last — and the negative-index test has been the only thing catching an
+unsigned-index implementation on **all six**.
+
+**Only Azure AI Search remains.** Its simulator implements no OData filters, so whether it can be
+verified locally at all needs establishing before an implementation is written, rather than after.
+**Goal:** the seventh backend. Scoping it first — as promised, because its simulator implements
+OData filters incompletely — found a worse defect than the missing lookup.
+
+**THE KEY WAS RANDOM, SO WRITES COULD NEVER REPLACE (#517).**
+
+```csharp
+["id"] = Guid.NewGuid().ToString("N"),
+...
+IndexDocumentsBatch.Upload(documents)
+```
+
+Azure's `Upload` replaces the document with the given key. With a fresh GUID every time, it could
+only insert. **Measured on the simulator: storing one chunk twice left two searchable.** Every other
+store in this repository upserts on `(document_id, chunk_index)`; this one accumulated. Nothing
+warned, and no test stored anything twice — a store-then-search test passes either way.
+
+**IT IS ALSO WHY THE LOOKUP WAS BLOCKED.** With no identity in the key, a keyed read has to filter
+on `document_id` **and** `chunk_index` — and `chunk_index` is declared
+`new SimpleField("chunk_index", SearchFieldDataType.Int32)` with no `IsFilterable`, so the service
+would reject that filter. One root cause, two symptoms.
+
+**Deriving the key fixes both**, and turns the lookup into a direct `GetDocument` that needs no
+filter at all — which is exactly what makes it verifiable locally.
+
+**The encoding is the part that had to be right.** Azure AI Search permits only letters, digits,
+`_`, `-` and `=` in a document key, so `documentId + ":" + chunkIndex` fails outright on an id
+containing a slash, a colon, a space or non-ASCII text. Base64Url's alphabet is precisely the
+permitted set, so encoding the whole composite is uniformly safe rather than safe for whichever ids
+someone happened to test. The pairing is injective because a chunk index has no newline in its
+decimal form, so the last newline always separates the parts — getting that wrong would silently
+merge two chunks into one document.
+
+**Five mutations, each caught:**
+
+| mutation | caught by |
+| --- | --- |
+| random key again (#517) | six tests, including the upsert one |
+| **raw concatenation, no encoding** | the awkward-id theory and the charset test |
+| index dropped from the key | four tests |
+| index made unsigned | `DistinctPairsProduceDistinctKeys` |
+| 404 no longer treated as absent | the absence test |
+
+The second is the one worth having: it is the simplification a later reader reaches for, and it
+passes every test that uses a well-behaved document id.
+
+**BREAKING.** Documents written with GUID keys are not addressable under the new scheme, so an
+existing index needs recreating and re-ingesting. Taken deliberately, on the operator's decision,
+because pre-1.0 is when that is cheap.
+
+**A claim corrected along the way.** "The simulator implements no OData filter expressions" comes
+from a real skip reason in this repository, but the delete path uses a filter and is not skipped. On
+inspection neither test proves filtering works — a delete that ignored its filter would empty the
+index and still pass — so the claim is unverified in both directions rather than established.
+
+**With Chroma (in flight separately), this completes #318: seven backends, seven mechanisms.** SQL
+row-zipping, payload filter, direct key read, GraphQL where, id fetch, an endpoint that had to be
+added, and a key scheme that had to be replaced. Not one was a translation of the last — and the
+negative-index test was the only thing catching an unsigned-index implementation on every one.
+
+**#318 was closed 2026-09-09**, after all seven implementations were verified present on `main` by
+content rather than by any PR's MERGED label.
+
+### Phase 6.2.31: What Redis Never Stored, It Cannot Return [status: complete 2026-09-09 — #513, and the larger defect scoping it found]
+**Surface:** Storage
+**HelpWanted:** no
+**Completed:** 2026-09-09
+**Design:** `docs/plans/2026-09-09-redis-chunk-metadata-design.md`
+**Plan:** `docs/plans/2026-09-09-redis-chunk-metadata-implementation.md`
+
+**SCOPING IT FOUND A WRONG-RESULTS DEFECT, NOT A MISSING FEATURE.** `SearchAsync` never reads
+`options.MetadataFilter` — the query is `*=>[KNN ...]` with no filter clause — and
+`VectorStoreBehavior` is terminal, so nothing re-checks downstream. **A filtered search against
+Redis silently returns unfiltered results.** Redis is the only one of the seven store packages that
+does not reference `MetadataFilter` anywhere, and no test asserts that any remote store honours it.
+The phase takes the whole contract rather than #513's half, on the operator's decision.
+
+**Two design decisions were reversed by their own evidence.** The corrupt-blob posture was first
+specified as PgVector's empty-dictionary fallback "for cross-store consistency"; the provenance says
+the opposite — Weaviate's throw is a 2026-07-25 review finding that deliberately replaced that
+default, and PgVector, Qdrant and Azure AI Search simply never got the same review. Copying the
+majority would have copied the shape a review already rejected, into the one store where "reads as
+no metadata" is indistinguishable from the defect being fixed. Filed as **#521**; Redis throws.
+
+**And the RediSearch defaults would have broken matching twice, silently.** A TAG field splits its
+value on `,`, so a metadata string containing a comma stores as two tags — no separator is safe when
+a value can contain any character, so the token's value half is Base64Url-encoded, 6.2.30's argument
+reused. TAG fields also fold case, while `MetadataValue.Equals` compares strings ordinally, so the
+fields are declared `caseSensitive: true`. Both were found by reading the API surface, not by
+running anything.
+
+**Goal:** `RedisVectorStore` persists chunk metadata, so search and the keyed lookup can return it
+on the one backend where today both succeed and return none.
+
+**This phase's defect was found by the phase that could not fix it.** 6.2.26 built the Redis keyed
+lookup and it works — a direct hash read, the fastest mechanism of the seven. Then the metadata test
+had nothing to assert. `StoreAsync` writes four fields — `document_id`, `chunk_index`, `text`,
+`embedding` — and no metadata at all, so **neither retrieval path on this store can return a
+metadata value, and neither of them fails.** They return chunks with an empty dictionary, which is
+indistinguishable from a document that genuinely carried no metadata.
+
+**6.2.26 asserted the limitation rather than skipping the test**, precisely so it would go red the
+day `StoreAsync` starts storing metadata. That day is this phase. **The existing test is expected to
+fail, and its failure is the entry point, not a regression** — if it stays green after the store is
+changed, the change did not reach the path the test reads.
+
+**Two questions the design has to answer before any code**, and neither is settled by the six
+backends that came before:
+
+1. **How metadata is encoded in a hash.** Redis hash values are flat strings. The other six stores
+   either have a native map type or a JSON payload column; this one does not, so the encoding is a
+   decision rather than a translation — and the field-name space is shared with `document_id`,
+   `chunk_index`, `text` and `embedding`, so a metadata key called `text` must not be able to
+   overwrite the chunk.
+2. **What the search path does with it.** The lookup reads whole hashes and can decode everything;
+   RediSearch returns selected fields, and the TAG escaping 6.2.26's direct read deliberately
+   sidesteps applies again the moment metadata becomes filterable. **Whether metadata is filterable
+   here is a scope decision, not an implied one** — #513 asks for it to be returned, not queried.
+
+**Verified against a real Redis, as all seven lookups were**, and mutation-tested: on six backends
+running the mutations has found something every time, including one *missing* guard that eight
+passing tests did not.
+
+**Twelve mutations, ten caught on the first run:**
+
+| # | mutation | caught by |
+| --- | --- | --- |
+| 1 | delete the kind prefix from `MetadataToken` | `AStringTokenCarriesItsKindAndDecodesBackToItsValue`, `ANumberAndAStringOfTheSameTextProduceDifferentTokens`, `AStringFilterDoesNotMatchANumber` |
+| 2 | replace the Base64Url encoding with `value.ToString()` | `AValueContainingACommaEncodesWithoutOne`, `AStringTokenCarriesItsKindAndDecodesBackToItsValue`, `AValueContainingTagSyntaxAndACommaStillMatchesItself` |
+| 3 | drop `caseSensitive: true` from `AddTagField` | **nothing** — survived, see below |
+| 4 | drop `EscapeTag` from `BuildFilterPrefix` | five tests — an unescaped colon in the token corrupts the whole query, not just the value carrying the syntax |
+| 5 | return `"*"` unconditionally from `BuildFilterPrefix` | seven tests |
+| 6 | treat an empty filter as a filter (drop `Count: > 0`) | `AnEmptyFilterReturnsTheWholePage` |
+| 7 | skip the undeclared-key throw and ignore the key | both undeclared-key tests |
+| 8 | delete `VerifyFilterableKeysAreIndexedAsync`'s call site | `AnIndexMissingADeclaredKeyFailsInitialisation` |
+| 9 | drop `MetadataField` from `ReturnFields` | `SearchAsync_ReturnsTheStoredMetadata` |
+| 10 | return empty instead of throwing on a corrupt blob | `ACorruptMetadataFieldThrowsNamingTheChunk` |
+| 11 | throw instead of returning empty for a missing metadata field | `AHashWithNoMetadataFieldReadsAsEmptyRatherThanThrowing` |
+| 12 | make `chunk_index` unsigned (`Math.Abs`) in `KeyFor` | **nothing** — survived, see below |
+
+Ten of twelve had a real catcher on the first try, several with more bonus catchers than
+predicted. Two survived a clean run and were closed with one new test each, verified to fail
+against the mutation and pass against real code.
+
+**The case-sensitivity mutation falsified this phase's own design rationale for the flag.**
+Dropping `caseSensitive: true` from the TAG schema left the entire suite green, including the
+test written specifically to catch it (`AFilterDoesNotMatchAValueDifferingOnlyInCase`: stores
+`tenant = "ACME"`, filters `"acme"`, expects no match). The reason: metadata values are
+Base64Url-encoded before they reach the tag, and `"ACME"`/`"acme"` differ by the ASCII case bit
+in every byte — a difference that does not land on Base64's six-bit group boundaries, so the two
+tokens differ throughout rather than by case. RediSearch's case-fold default had nothing to fold;
+the existing test could not observe the schema attribute through that indirection at all. The
+flag is still load-bearing, for a reason the original source comment did not state and now does:
+two *different* values can encode to tokens that are themselves case-variants of one another —
+three NUL bytes (`{0x00,0x00,0x00}`) encode to `AAAA`, and `{0x68,0x00,0x00}` encodes to `aAAA`.
+Confirmed as a real index-level effect via `FT.INFO` (`CASESENSITIVE` present with the flag,
+absent without it — not a stale-fixture artefact, since each test method builds its own
+container and index). Closed with a test that stores the NUL-byte value and filters for its
+case-variant token, failing without the flag and passing with it. The flag is now pinned twice:
+structurally (`FT.INFO` asserts `CASESENSITIVE` is declared) and behaviourally (the two tokens
+are proven not to collide).
+
+**The unsigned-index streak — six for six on the backends before this one — does not settle what
+it looks like it settles.** On Redis, applying `Math.Abs` inside `KeyFor` caught nothing:
+`StoreAsync` and `GetChunksAsync` both go through that one shared helper, so the mutation is
+self-consistent between write and read, and the existing test's indices (`-1, -2, 0`) never share
+a magnitude with another index in the same test — the mutation only breaks a pair whose absolute
+values coincide, and this test never produced one. **The same conditions held at 6.2.26**, the
+phase that built this store's keyed lookup: `git show 72f96677` shows `KeyFor` already the single
+helper called by both `StoreAsync` and the newly added `GetChunksAsync`, and
+`NegativeChunkIndicesAreKeysLikeAnyOther` storing the identical `-1, -2, 0`. Yet 6.2.26's own
+record reports the abs mutation caught, "only" by that negative-index test. **Exactly one of two
+things is true, and the record does not say which**: 6.2.26 mutated the stored `chunk_index`
+field — a different site, caught immediately, correctly recorded — or it mutated the shared
+helper and the "caught" claim was never actually run against the code this phase ran it against.
+Nothing in 6.2.26's write-up names the line it changed, so there is no way to tell from here which
+happened. **What follows either way**: a mutation's site decides how strong the test is, and
+naming the mutation without naming the line makes a sweep unreproducible — "six for six" and
+"seven for seven" describe a streak nobody can check. The actionable lesson is to record the site,
+not just the mutation, from here on. Closed on Redis with a test storing chunk index `1` and `-1`
+for the same document, which do collide under `Math.Abs`.
+
+**The documentation itself claimed a fallback that never existed, which is plausibly why the
+missing filter survived this long.** `docs/guide/vector-stores.md` told readers that Redis lacked
+`MetadataFilter` translation but that "filtering happens in the pipeline instead." It does not:
+`MetadataFilterMatcher.Matches` is called from exactly two places in `src/` —
+`InMemoryVectorStore` and `InMemoryBm25Index` — and both are stores, not pipeline stages.
+`VectorStoreBehavior` and `EnsembleBehavior` only copy the filter into `SearchOptions` and pass it
+downstream; no pipeline stage filters anything. A reader who noticed Redis was missing the feature
+was told, in the same paragraph, that something else covered it. Corrected as part of this
+phase's documentation.
+
 ### Phase 6.3: Release v1.0 [status: pending — but its first work is DONE and was done before this milestone opened: 71 packages are live on nuget.org at 0.1.0 since 2026-08-11, so the account, the key and every package ID are settled. What remains is the v1.0 tag itself. ~~Now gated on 6.2.3~~ — **that gate cleared 2026-08-21** when #340 merged. What still gates the tag is 6.1's recordings, kept as a gate by the operator's 2026-08-20 decision, and 6.2.1's sweep]
 **Goal:** Tag v1.0, plus whatever release mechanics Phase 4.1's packaging pass leaves to
 release time — the release-please run, release notes, the published packages' final metadata.
