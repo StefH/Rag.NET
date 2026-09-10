@@ -1,6 +1,20 @@
 # Session State
 
-**Last updated:** 2026-09-09 — **THIRTEEN MORE PHASES SHIPPED AND THIS FILE RECORDED NONE OF THEM.**
+**Last updated:** 2026-09-10 — **twice in one day, both at the merge.** 6.2.35 merged as #540 at
+13:04 and this entry was written from the same session, as was 6.2.34's before it. **Two is not a
+habit**, and the mechanism is still the only thing carrying it: the session that built the phase
+records the merge as its next action, so no window opens. The first such entry, written this morning,
+follows below unchanged.
+
+**Previously, 2026-09-10 — written within the hour of the merge it records, which is the one
+thing every entry below says never happens.** 6.2.34 merged as #536 at 10:02; this entry was written
+from the same session, on the `chore/state-6234-merged` branch cut immediately after. **The streak
+is broken by mechanism, not by resolve:** the session that built the phase recorded the merge as its
+next action, so there was no window in which the file could go stale. Every prior occurrence
+below was written by a *later* session discovering the gap. Whether it holds depends on the next
+session doing the same, not on this note.
+
+**Previously, 2026-09-09 — THIRTEEN MORE PHASES SHIPPED AND THIS FILE RECORDED NONE OF THEM.**
 6.2.18–6.2.30 are all on `main`. That is the fifth time this document has gone stale at a merge, and
 the note below — written on the fourth — did not prevent the fifth. **The entry that follows was
 itself two days out of date while claiming to correct staleness.** The habit that fails is writing
@@ -69,10 +83,158 @@ figure, and the only thing that caught it was a never-run cell reporting 20,155 
 without one, which is why every session so far re-derived its position from `ROADMAP.md` and
 `MILESTONE.md` and twice acted on a debt that had already closed.
 
+## Session handoff — 2026-09-10, end of session
+
+**Written by `pause-work`.** Six PRs merged today (#536, #537, #540, #541, #542) and one phase closed
+that nobody planned this morning.
+
+### Current position
+
+**Milestone 6, active.** No phase is open. **6.2.36 is scoped and not started** — design and roadmap
+entry are on `main` (#542); there is **no implementation plan yet**.
+
+Closed today: **6.2.34** the semantic ranker (#536), **6.2.35** the benchmark filter guard (#540).
+Both recorded at the merge rather than after the drift, which is the first time that has happened
+twice in a row.
+
+### Open decisions — the next session must not re-litigate these
+
+Three were settled by the operator today and are **not open**, though a reader could mistake them
+for open because the design records the alternatives:
+
+- **6.2.36 moves the ranker to `HybridSearchAsync`.** Not "make it unconfigurable", not "revert".
+- **`EnsembleBehavior` throws** when ranking is enabled and the native path is unreachable. Not warn,
+  not document-only.
+- **Pre-push review reports are not committed.** They live on disk untracked, deliberately.
+
+Genuinely open, and named in the 6.2.36 design for the plan to settle:
+
+- **Does `AzureAISearchVectorStore` keep `IScoreScaleAware`?** Once the ranker leaves the dense path
+  it returns `Similarity` unconditionally, which `ScoreScale`'s own remarks define as the assumed
+  default for stores that do *not* implement it. Keep as a discoverable declaration, or remove as
+  vestigial.
+- **What the general `IHybridSearchable` capability probe is called**, and its exact shape.
+  6.2.33's defaulted `HybridScoreScale` is the precedent.
+- **Whether 6.2.36 ships before or after the resilience fix below**, or whether its throw message
+  names resilience as a known cause.
+
+### Blockers, and one open loop that is nobody's yet
+
+- **6.1 and 6.3 are blocked on accounts, not effort.** Unchanged since 2026-08-20. 6.2.36 is the only
+  remaining item that can be finished locally.
+- **THE RESILIENCE / HYBRID FINDING IS NOT FILED.** `ResilientVectorStore` does not implement
+  `IHybridSearchable`, and `EnsembleBehavior` probes the decorated `IVectorStore`, so **enabling
+  resilience silently disables native hybrid dispatch today** for every store that supports it —
+  independent of the ranker, and shipped. It is written up in the 6.2.36 design's §4 and in the
+  ROADMAP block, **and it has no issue number.** The operator was asked and the session ended before
+  an answer. **This is the one thing in this handoff that exists only in prose.**
+
+### Recommended next step
+
+**Merge state permitting, run `writing-plans` for 6.2.36** — the design is complete, the decisions
+are settled, and the only inputs it needs are the three open questions above. Then
+`list-phase-assumptions` → `executing-plans`.
+
+**Before that, decide the resilience issue.** If it is filed, 6.2.36's plan should reference it; if
+it is not, 6.2.36's throw will surface it as an unexplained failure for any user with resilience
+registered.
+
+### Environment left running
+
+**Docker Desktop was started by this session** and is still running. Nothing depends on it between
+sessions; stop it freely.
+
 ## Current Position
 
 **Milestone:** 6 — Hardening & v1.0 — Battle-Tested (active since 2026-08-15)
-**Phase:** 6.2.33 — A Fused Score Is Not a Similarity — **MERGED 2026-09-09** (#531, `5d62f58b`),
+**Phase:** 6.2.35 — A Filter That Filters Nothing — **MERGED 2026-09-10** (#540, `08f39f9f`),
+closing #529. Verified on `main` by content — `Directory.Build.targets` exists,
+`RefuseVSTestFilterUnderTestingPlatform`, `RAGNET0001` and
+`TheGuardIsHookedToTheTestingPlatformRunner` are all present — not by the PR's MERGED label.
+**No phase is currently open**, and **what remains of the milestone is blocked on accounts, not
+effort**: 6.1's cassettes and the 6.3 tag that waits on them.
+
+**A TOOL THAT LIED, FIXED WITH THE SAME POSTURE AS THE LIBRARY DEFECTS.** `--filter` on the
+benchmark project set a VSTest property Microsoft.Testing.Platform does not read: MTP warned and ran
+**267** tests instead of the one class asked for, 149 of them for real. The platform already
+detected the condition and already declined to act on it — **the whole defect was that its response
+was a warning where the consequence is a wrong answer.** The phase changed a severity, not a
+detection.
+
+**The issue's arithmetic was wrong by nearly 4x and its scope claim was right.** It said "~70". Both
+halves were checked rather than assumed, because 6.2.32 found #521 naming three vector stores when
+there were six sites.
+
+**The phase's own sweep prediction was wrong, and naming the error is the point.** Row 4 swaps the
+condition for the property — the tidy a future reader is most likely to make, because it makes the
+condition match the message. It was predicted to survive as *"behaviourally equivalent today"*. It is
+not equivalent in any respect: **the condition asks whether a filter was passed; the property asks
+whether the project uses MTP.** Swapping them makes the guard fire on every unfiltered run. **The
+reasoning conflated a coincidence of scope — one project sets the property — with equivalence of
+meaning.** Those are unrelated, and the mistake is the kind that survives review because both
+statements are true.
+
+**Row 3 is the one that justified writing a second kind of test, and it held exactly as argued in
+advance.** Deleting `BeforeTargets` left both behavioural tests green while the guard never ran,
+because invoking a target by name bypasses the hook. **A harness that cannot reach a thing cannot
+guard it** — worth remembering the next time a structural assertion looks redundant beside a
+behavioural one.
+
+**The review found a hang-shaped risk inside the guard for a property that exists because of a
+hang.** The helper read one redirected stream to the end and then the other, and waited unbounded.
+Unlikely with one MSBuild target — but `TestingPlatformDotnetTestSupport` is in this repository
+**because of #275, a deadlock in test infrastructure that hung 2 of 4 runs before entering test
+code**, so probability was not the argument. **The repository already held both the weaker pattern
+and the better one** (`ProducedPackageTests` reads sequentially; `CliProcessTests.RunAsync` reads
+async with a bounded wait) **and the branch had reached for the weaker.** When two patterns exist,
+check which one you copied.
+
+**Two things only running it would have found.** The analyzer rejects `==` on strings. And **an XML
+comment cannot contain a double hyphen**, which is genuinely awkward in a file whose entire subject
+is a command-line flag spelled with one — the comment names the MSBuild property instead and says
+why, so the next editor does not re-break it.
+
+**Previously:** 6.2.34 — The Semantic Ranker, and the Simulator That Lies About It — **MERGED 2026-09-10**
+(#536, `f5870bdf`), closing #328. Verified on `main` by content — `EnableSemanticRanking`,
+`SemanticConfigurationName`, `SearchIndexSettle` and `EnablingTheRankerWithKJustBelowFiftyIsRejected`
+are all present — not by the PR's MERGED label. **No phase is currently open.** The next planned
+phase is 6.3 Release v1.0, still blocked on 6.1, still blocked on accounts.
+
+**A FEATURE SHIPPED *WITH* ITS UNVERIFIABILITY RATHER THAN WAITING FOR A RESOURCE.** The Azure
+simulator accepts a semantic index configuration and `queryType=semantic`, returns HTTP 200 with
+results, and returns **no `rerankerScore` at all**. So the store throws when ranking was requested
+and none comes back. That guard is what makes the feature shippable — and it is also what makes
+everything past it untestable, because the guard fires before any of it runs.
+
+**The mutation sweep inverted two of its own predictions, and that is the transferable part.** Row 6
+— leak the ranker into `HybridSearchAsync` — was flagged in the plan as the one *"nothing may
+catch"*; it failed two existing tests. Row 7 — apply `MinScore` on the ranked path — survived and
+**cannot be closed by any local test**: the line is *unreachable*, not untested. **A predicted gap
+that turns out closed is worth recording as loudly as one that turns out open.** The prediction was
+the guess; the sweep is the evidence. The design's §5 was rewritten from that result rather than
+left as written.
+
+**The one real gap the sweep found was in the plan's own test code, not the implementation.** The
+`k` guard was tested at 10 (reject) and 50 (accept), so a threshold mutated from 50 to 11 passed
+every test while wrongly accepting **49** — the exact value the guidance is about. **A boundary
+tested only from far outside it is not tested.** Same shape as 6.2.31's fused-score test that could
+not fail.
+
+**Two guards this repository owns that `dotnet build` cannot reach, both hit this session.**
+`PackageValidation` compares packed artefacts against the version GitVersion derives — stale
+artefacts from an *earlier branch* failed it, needing a full 73-package repack. And
+`EveryDocsCodeExampleResolvesAgainstTheProducedPackages` compiles every fenced `csharp` block under
+`docs/` against the shipped packages, **scanning the filesystem rather than git**, so an *untracked*
+file breaks it too: the phase's own pre-push review report did, quoting a test line containing
+xunit's `TestContext`. **Run `pack-validate`'s suites before pushing anything that touches a
+`.csproj` or adds a docs page.**
+
+**Pre-push review reports are deliberately not committed.** The 2026-09-09 pair and this phase's own
+are untracked, and #536 briefly tracked one before it was amended back out — committing them adds a
+`docs/` page that must satisfy the docs-example guard forever, for no benefit. **Established
+practice, now written down** because nothing recorded it and the skill's default is to commit.
+
+**Previously:** 6.2.33 — A Fused Score Is Not a Similarity — **MERGED 2026-09-09** (#531, `5d62f58b`),
 closing #530. Verified on `main` by content: the new `HybridScoreScale` member, both stores'
 `minScore: 0.0` on their hybrid paths, the new dense guard test, and `CanDispatchNatively`'s
 predicate unchanged. **#328 split out to 6.2.34** — on verifiability, not size.

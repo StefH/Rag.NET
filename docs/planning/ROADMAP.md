@@ -7258,11 +7258,12 @@ the local simulator accepts a `semantic` index configuration and a `queryType=se
 returns HTTP 200 with no `rerankerScore` at all, so a test written the obvious way would pass whether
 or not ranking actually happened. That half carries 6.1's account constraint and stays pending.
 
-### Phase 6.2.34: The Semantic Ranker, and the Simulator That Lies About It [status: pending — added 2026-09-09, #328]
+### Phase 6.2.34: The Semantic Ranker, and the Simulator That Lies About It [status: complete 2026-09-10 in #536 — #328, and the two mutation rows that inverted their own predictions]
 **Surface:** Storage
 **HelpWanted:** no
 **Design:** `docs/plans/2026-09-09-semantic-ranker-design.md`
 **Plan:** `docs/plans/2026-09-09-semantic-ranker-implementation.md`
+**Completed:** 2026-09-10
 
 **Goal:** Azure AI Search's semantic ranker, opt-in, declaring its scale — the third case of the
 rule 6.2.33 established rather than a decision invented for it.
@@ -7338,6 +7339,265 @@ rank. The simulator's defect (HTTP 200, ordinary results, no `rerankerScore`) is
 real under-provisioned service takes**, so the guard is tested against a faithful instance of the
 failure it exists for.
 
+
+### Phase 6.2.35: A Filter That Filters Nothing [status: complete 2026-09-10 in #540 — #529, and the sweep row whose prediction the phase itself got wrong]
+**Surface:** Infra
+**HelpWanted:** no
+**Design:** `docs/plans/2026-09-10-benchmark-filter-guard-design.md`
+**Plan:** `docs/plans/2026-09-10-benchmark-filter-guard-implementation.md`
+**Completed:** 2026-09-10
+
+**Goal:** `dotnet test --filter` against the benchmark integration tests stops silently running
+everything, and starts refusing with the command that does work.
+
+**THE ISSUE UNDERCOUNTS BY NEARLY FOUR TIMES.** #529 says one cell means "all ~70". **Measured
+2026-09-10: 267** — 149 passed, 118 skipped, from a `--filter` naming a single class. And **149 of
+them execute for real with no environment variables set**, so the unprovisioned run is not a no-op
+either. The issue's *scope* claim does hold — exactly one project sets
+`TestingPlatformDotnetTestSupport` — and it was checked rather than assumed, because 6.2.32 found
+#521 naming three vector stores when there were six sites across five components.
+
+**The platform already detects this and already declines to act.** `_ValidateVSTestProperties` tests
+`VSTestTestCaseFilter` and raises `MTP0001` — a **warning** — then `InvokeTestingPlatform` runs
+everything. **This phase detects nothing new; it changes a severity that is wrong at exactly one
+place.**
+
+**It is the milestone's own defect shape, one layer up.** A filter that filters nothing succeeds,
+prints green, and answers a question nobody asked — the "code that succeeds while doing nothing"
+family that accounted for four of five phases around 6.2.13–6.2.17. **And it has already produced a
+wrong finding**: during #495 the instrumentation captured self-query prompts while the reader
+believed they were deep-research ones, an apparent difference between two checkouts that was
+entirely test execution order. The measurement was not wrong; **the attribution was.**
+
+**The guard is repo-wide and self-arming, decided against the issue's own proposal.** #529 suggests a
+target in that project; it goes in a new root `Directory.Build.targets` hooked to
+`BeforeTargets="InvokeTestingPlatform"`, which exists only when Microsoft.Testing.Platform is the
+runner. Same reasoning as 6.2.32's move of the throwing deserialiser into `MetadataSerializer` —
+the point is not to fix one site but to make the trap unreachable for a project that adopts MTP
+later, **including by a route other than that property**. Severity is `Error`: MTP0001 is already a
+warning and is already being scrolled past, and a second warning beside an ignored warning is not a
+fix.
+
+**Prototyped and proved before the design was written, three controls.** (A) filtered MTP project →
+`error RAGNET0001`, no tests run. (B) same project unfiltered → 267 run normally, guard silent.
+(C) filtered non-MTP project → 6 of 97 run, filter genuinely narrows, guard does not fire. **C is
+the one that matters** — it proves a new repo-wide file leaves the other sixty-odd projects alone.
+The escape hatch was verified too: the native xunit v3 runner with `-class` ran **1** test where
+`--filter` ran 267, and prints the skip reason `dotnet test` suppresses.
+
+**One wording question is open and named rather than papered over.** The message asserts the project
+"sets `TestingPlatformDotnetTestSupport`", but the *condition* deliberately does not check that
+property. Today they coincide; the moment they diverge the error explains the wrong cause. Settle
+before implementation.
+
+**Fully verifiable locally — no account, no container.** The first phase since 6.2.30 for which
+nothing is account-blocked, in deliberate contrast to 6.2.34's documented `<VerifiedByReason>` gap.
+
+**The two open questions are settled, and the second changed the plan's shape.** The message
+*conditions* its wording — always naming the true trigger, naming
+`TestingPlatformDotnetTestSupport` only when it is actually set — proved in both directions. And the
+guard gets a **behavioural** test as well as a structural one, which forced a harness decision:
+`dotnet test --filter` takes **44.8 s**, `--no-build` takes 0.95 s but needs the benchmark project
+already built (a `RepoConventions` run has not built it), and **`dotnet msbuild -t:<target>` takes
+0.535 s and needs no build at all**. The last is the harness. **It cannot reach the `BeforeTargets`
+hook**, which is exactly why the structural test is not redundant: deleting the hook leaves every
+behavioural test green and the guard completely inert.
+
+**Not in scope:** removing `TestingPlatformDotnetTestSupport` (it fixes #275's deadlock, where the
+VSTest adapter hung 2 of 4 runs before entering test code), making `--filter` work under MTP
+(upstream's), and CI — `ci.yml` and `nightly.yml` pass no filter, verified.
+
+**BUILT 2026-09-10. Four mutation rows, four caught, and the plan's reasoning about one of them was
+wrong.** Row 4 — change the condition from `VSTestTestCaseFilter` to `TestingPlatformDotnetTestSupport`,
+the "tidy" a future reader is most likely to make because it makes the condition match the message —
+was predicted to **survive**, on the grounds that the two are "behaviourally equivalent today" with
+one project setting one property. **They are not equivalent in any respect, and the prediction was
+simply a mistake in reasoning.** The condition asks *was a filter passed*; the property asks *does
+this project use MTP*. Swapping them does not narrow or widen the guard's trigger — it makes the
+guard fire on **every unfiltered run** of that project. Caught immediately by
+`WithNoFilter_TheGuardIsSilent`.
+
+**That negative test is the one carrying the phase.** It was written as the control that makes a
+repo-wide file safe, and it caught two of the four mutations — row 1 (delete the condition) and row
+4. A file imported by all ~140 projects fails catastrophically in exactly one direction, and that is
+the direction it guards.
+
+| # | mutation | site | caught by |
+|---|---|---|---|
+| 1 | delete the `Condition` so the guard always fires | the `Target` element | `WithNoFilter_TheGuardIsSilent` |
+| 2 | `Error` → `Warning` | the task element | `PassingAVSTestFilterToATestingPlatformProject_IsRefused` |
+| 3 | delete `BeforeTargets="InvokeTestingPlatform"` | the `Target` element | **`TheGuardIsHookedToTheTestingPlatformRunner` only** — both behavioural tests stayed green |
+| 4 | condition on `TestingPlatformDotnetTestSupport` instead | the `Target` element | `WithNoFilter_TheGuardIsSilent` — **predicted to survive; did not** |
+
+**Row 3 is the structural test's whole justification, and it held exactly as argued.** The
+behavioural harness invokes the target by name, which bypasses `BeforeTargets`, so deleting the hook
+leaves both behavioural tests green while the guard never runs at all. One test failed; it was the
+structural one.
+
+**The harness needed measuring, not estimating.** `dotnet test --filter` takes 44.8 s;
+`--no-build` takes 0.95 s but requires the benchmark project already built, which a `RepoConventions`
+run has not done; `dotnet msbuild -t:<target>` takes **0.535 s and needs no build**. The last is what
+the tests use.
+
+**Three controls, run rather than inferred:** (A) filtered MTP project → `RAGNET0001`, no tests run;
+(B) same project unfiltered → 267 run (149 passed, 118 skipped), guard silent; (C) filtered non-MTP
+project → Redis narrowed to **9 of 47**, guard silent. C is the one that proves a repo-wide file
+leaves the other sixty-odd projects alone.
+
+**Two things only running it would have found.** The analyzer rejects `==` on strings (MA0006), so
+the structural assertion uses `string.Equals` with an ordinal comparison. And **an XML comment cannot
+contain a double hyphen**, which is awkward in a file whose entire subject is a command-line flag
+spelled with one — the comment refers to the MSBuild property instead, and says why so the next
+editor does not re-break it.
+
+`RepoConventions` 98 passed / 2 pre-existing skips, up from 95. #529 corrected on the issue before
+the merge closes it.
+
+**The pre-push review found a hang-shaped risk inside the guard for a property that exists because
+of a hang, and that is the finding worth keeping.** The test helper read one redirected stream to the
+end and then the other — which deadlocks if the child fills the second stream's buffer while the
+reader is blocked on the first — and waited on the child with no timeout. Both are unlikely with one
+MSBuild target and `-nologo`. **`TestingPlatformDotnetTestSupport` is in this repository because of
+#275, a deadlock in test infrastructure that hung 2 of 4 runs before entering test code**, so the
+probability was not the point. Fixed by following `CliProcessTests.RunAsync`, which already had the
+correct shape: asynchronous reads and a bounded wait that fails naming the timeout. **The repository
+held both the weaker pattern and the better one, and this branch had reached for the weaker.** All
+four mutation rows were re-run afterwards, because rewriting a catching test invalidates the rows
+that depend on it; all four still caught, same catchers.
+
+### Phase 6.2.36: The Ranker Belongs Where the Text Is [status: pending — added 2026-09-10, #539]
+**Surface:** Storage
+**HelpWanted:** no
+**Design:** `docs/plans/2026-09-10-semantic-ranker-hybrid-design.md`
+**Plan:** `docs/plans/2026-09-10-semantic-ranker-hybrid-implementation.md`
+
+**Goal:** the semantic ranker moves to the one path that carries a text query, and a request for
+ranking that cannot be honoured throws instead of returning unranked results.
+
+**6.2.34 PUT THE FEATURE ON THE ONE PATH THAT CANNOT CARRY IT, AND IT SURVIVED THREE HOURS.** #536
+merged at 10:02; @StefH filed #539 at 11:30 against a real Azure resource. Semantic ranking needs
+query text — Microsoft: *"A query with `search=*` or an empty search string … won't work because
+there's nothing to measure semantic relevance against"* — and `IVectorStore.SearchAsync` takes
+`ReadOnlyMemory<float>` and a `SearchOptions` carrying `TopK`, `MinScore` and `MetadataFilter`.
+**No text, by interface contract.** Not a wiring bug: the dense path cannot rank on any tier in any
+region.
+
+**The guard is why this is an issue and not a silent corruption.** Without 6.2.34's throw the
+reporter would have received **ordinary cosine similarities relabelled as reranker scores**,
+declared `OpaqueRanking`, with `MinScore` skipped — wrong numbers presented confidently on a path
+advertised as reranked. **The guard caught a defect its own author did not**, which is the strongest
+evidence this milestone has produced for its own rule, and it indicted the phase that wrote it.
+**The `<VerifiedByReason>` was right too**: it named everything past the guard as unverifiable
+without a billable resource, and a billable resource found it immediately.
+
+**The excluded path was the right one all along.** 6.2.34 skipped hybrid because ranking an
+already-fused score "raises a separate question this store does not yet answer". True — but the
+dense path does not answer an easier question, it answers none. And the move is *smaller* than it
+sounds: `HybridSearchAsync` already takes `textQuery`, `HybridScoreScale` is **already**
+`OpaqueRanking` (6.2.33), and `MinScore` is already forced to `0.0` there, so replacing a fused
+score with a reranker score needs **no scale change at all**.
+
+**Decided 2026-09-10: `EnsembleBehavior` throws when ranking is on and the query cannot reach the
+native path.** Moving to hybrid does not hand the ranker to the caller — it puts it behind a
+dispatch requiring `EnsembleOptions is null`, `MinScore is 0.0` and no SPLADE arm. Violate one and
+the query is fused client-side: **correct results, no ranking, no error** — the same "succeeds while
+doing nothing" family, one layer above the guard that removes it. The probe must be a general
+`IHybridSearchable` capability rather than an Azure flag, defaulted so existing implementers stay
+correct, with 6.2.33's `HybridScoreScale` as the precedent.
+
+**A FIFTH CONDITION NOBODY HAS WRITTEN DOWN, AND IT PREDATES THE RANKER.** `ResilientVectorStore`
+does not implement `IHybridSearchable`, and `EnsembleBehavior` probes the **decorated**
+`IVectorStore`. So **enabling resilience silently disables native hybrid dispatch entirely**, today,
+for every store that supports it. The repository solved this exact problem once for the sibling
+capability — there is a `ResilientSparseVectorStore`, and the class doc says it exists "so an
+`is ISparseSearchable` probe on the resolved `IVectorStore` stays honest after decoration". The
+reasoning was applied to sparse and not to hybrid. **Filed 2026-09-10 as #544 and not fixed here.**
+~~But §3's throw will surface it painfully: resilience plus ranking throws on every query.~~
+**That prediction is backwards, and the implementation plan's §0.1 corrects it.** The throw is
+conditioned on `VectorStore is IHybridSearchable`, which is exactly what a decorator hiding the
+interface makes false — so under resilience the throw *never fires* and the caller gets correct,
+unranked, silent results. The section predicted the opposite of the defect it had just described,
+using the mechanism it had just described. The plan answers it with a warning rather than a throw,
+because `IVectorStoreDecorator` deliberately exposes only `InnerStoreType` and the behaviour cannot
+ask a decorated instance whether ranking is on.
+
+**`vector-stores.md` is wrong in the same way the code was** and must be rewritten rather than
+amended — it documents the dense path throughout.
+
+**Not a revert.** The `k >= 50` guard, the scale declarations, the semantic index configuration and
+the guard itself are all correct and independently useful. Only the path was wrong.
+
+**The lesson is not "the account gap did this".** A local test could not have caught this. A careful
+reading of `SearchAsync`'s signature against one sentence of Microsoft's documentation could, and
+needed no Azure resource at all.
+
+**BUILT 2026-09-10. Plan: `docs/plans/2026-09-10-semantic-ranker-hybrid-implementation.md`.**
+
+**The plan-writing pass found two design errors before a line was written, and one of them is the
+section quoted above.** §4 predicted that the throw would "surface it immediately and painfully:
+resilience plus ranking throws on every query". It does the opposite. The throw is conditioned on
+`VectorStore is IHybridSearchable`, and a decorator hiding that interface is precisely what §4 had
+just finished describing — so under resilience the throw never fires and the caller gets correct,
+unranked, silent results. **The section predicted the opposite of the defect it had just described,
+using the mechanism it had just described.** The answer is a warning rather than a throw:
+`IVectorStoreDecorator` deliberately exposes only `InnerStoreType` — "so no caller can reach around
+whatever behaviour the decorator adds" — so the behaviour cannot ask a decorated instance whether
+ranking is on, but it can read the inner `Type`, which is what that interface exists for. Throwing
+would also break existing resilience+hybrid users who have no defect to fix.
+
+**The second error was a silent path nobody had named: `UseHybridSearch = false`.** A caller who
+enables the ranker at registration and never sets `UseHybridSearch` per query gets dense search
+forever. Under 6.2.34 they got a throw; after the move they would have got silence — **a regression
+in observability introduced by the fix**. It is now the first of four named blocking conditions, and
+the refusal moved above the early return to reach it.
+
+**#544 filed for the resilience gap**, per the design's "file it, do not fix it here", and the throw
+message names resilience and the issue as a known separate cause.
+
+**`IScoreScaleAware` removed from the store** (the question §2 deferred). With the ranker off the
+dense path, the property returns `Similarity` unconditionally — which `ScoreScale`'s own remarks
+define as the meaning of *not implementing the interface*. The docs defended implementing it
+unconditionally on the grounds that "a conditional implementation is not expressible"; that argued
+unconditional-over-conditional and says nothing about implementation-over-absence, and its premise —
+that the value depends on a constructor option — is exactly what this phase deletes. Two 6.2.34
+tests had to be deleted with it, one of which asserted *the dense path declares `OpaqueRanking` when
+the ranker is on*: the precise claim #539 is about, pinned as a test.
+
+**The capability probe is `IHybridSearchable.NativeOnlyCapability`, a defaulted `string?`** — one
+member carrying both the predicate and the explanation, quoted into the refusal. Weaviate needed no
+edit, which is what defaulting is for.
+
+**Two things only running it found.** `MA0051` rejected `HandleAsync` at 63 lines against a 60-line
+cap, so both guards were extracted into named methods. And **six pre-existing tests failed on the
+first build of the refusal**, because *NSubstitute returns `string.Empty` for an unconfigured
+`string` property, not `null`* — so the pattern `{ NativeOnlyCapability: { } }` matched `""` and
+produced a refusal reading "is configured for , which only its native hybrid query performs". The
+fix was not to configure six substitutes: blank now counts as no declaration, because the value's
+whole job is to be quoted into that message. The six tests then passed untouched, which is the
+correct outcome — they assert behaviour that must not change.
+
+**The mutation sweep ran nine rows and produced one survivor that became a test.** Row 2 had to be
+split while running it, and the halves differ: reintroducing 6.2.34's defect *in full* is caught,
+but setting `QueryType = Semantic` on the dense path **without** also expecting a reranker score
+**passed every test in the repository** — the score returned is an ordinary similarity, so the
+range assertion is satisfied and the guard never fires because nothing asked it to. It is a
+plausible half-move back, it sends Azure a semantic query with no search text, and **it is this
+phase's own defect shape**, so it got a test rather than a note: the dense request is now asserted
+*on the wire*, through a `DelegatingHandler`, never to mention semantic ranking at all. That is the
+opposite call from 6.2.34 row 7 and 6.2.35 row 4, where survivors were recorded rather than tested —
+the difference is that those were unreachable or pinned a coincidence, and this one is neither.
+**Rows 4 and 5 share a single catcher**, which is a coverage-shape finding rather than a pass: two
+structurally different mutations are both held by one theory row. **Row 8 was caught only by a
+structural assertion while all 1496 pipeline tests stayed unmoved** — predicted, and the point: it
+is positive evidence the `IScoreScaleAware` removal was behaviour-preserving, since no behavioural
+test can distinguish a removal from its reversal when there is no behavioural difference.
+
+**Suites:** AzureAISearch 45 → **49** (six added, two deleted), `Rag.NET.Tests` 1487 → **1496**,
+Resilience **105**, Memory **3**, Weaviate **30**, RepoConventions **98** (2 pre-existing skips),
+PackageValidation **23**. Whole solution builds clean, 0 warnings, 158 projects — so the interface
+removal breaks no consumer in the repository. **Still account-blocked past the guard**, unchanged
+from 6.2.34 and stated rather than glossed: the simulator accepts `queryType=semantic`, returns 200
+and returns no `rerankerScore`, so the throw is testable locally and the ranking itself is not.
 
 ### Phase 6.3: Release v1.0 [status: pending — but its first work is DONE and was done before this milestone opened: 71 packages are live on nuget.org at 0.1.0 since 2026-08-11, so the account, the key and every package ID are settled. What remains is the v1.0 tag itself. ~~Now gated on 6.2.3~~ — **that gate cleared 2026-08-21** when #340 merged. What still gates the tag is 6.1's recordings, kept as a gate by the operator's 2026-08-20 decision, and 6.2.1's sweep]
 **Goal:** Tag v1.0, plus whatever release mechanics Phase 4.1's packaging pass leaves to
