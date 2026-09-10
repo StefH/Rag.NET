@@ -7053,6 +7053,292 @@ downstream; no pipeline stage filters anything. A reader who noticed Redis was m
 was told, in the same paragraph, that something else covered it. Corrected as part of this
 phase's documentation.
 
+### Phase 6.2.32: A Corrupt Blob Is Not an Empty One [status: complete 2026-09-09 — #521, and the reviewed decision nobody had tested]
+**Surface:** Storage
+**HelpWanted:** no
+**Completed:** 2026-09-09
+
+**THE POSTURE THAT WON HAD NO TEST.** Weaviate has thrown on a corrupt metadata blob since
+2026-07-25, when a review deliberately replaced the tolerant default — and **nothing covered that
+path.** It was found by writing the six new tests and going to check the two that already existed;
+only Redis had one, from the phase before this. So the decision this phase propagates to six other
+sites was itself unpinned for six weeks, and any refactor could have reverted it silently. Closed
+with a seventh test rather than skipped.
+
+**One shared helper now owns the failure.** `MetadataSerializer.DeserializeMetadataOrThrow(json,
+context)` throws `InvalidOperationException` naming the row and preserving the `JsonException` as
+the inner. **Zero callers of the raw `DeserializeMetadata`/`DeserializeTags` remain outside the
+serializer**, which is the point: the tolerant shape is no longer the easy one to write, so a ninth
+site cannot be added the swallowing way by accident.
+
+**Eight mutations, eight red.** Each site's throw was reverted to the old fallback and its test
+confirmed to fail — the six required, plus Weaviate and Redis to prove the reroute had not
+loosened them. Six near-identical edits is where a copy-paste slip hides, and this is the check
+that would have caught one.
+
+**No upgrade hazard, and that is why it could be done bluntly.** `DeserializeMetadata(null)` and
+`("")` already return Success with an empty dictionary; only a `JsonException` yields Failure. A
+throw therefore cannot fire on an absent field — only on stored JSON that is genuinely malformed.
+Redis's inline null guard became redundant and was removed, which was confirmed rather than
+assumed: `RedisValue.Null.ToString()` returns `""`, and the pre-existing
+`AHashWithNoMetadataFieldReadsAsEmptyRatherThanThrowing` still passes.
+
+**Breaking**, deliberately and pre-1.0: five components stop answering a corrupt row with an empty
+dictionary and start failing. The widest is `SqliteDocumentStore.GetDocumentsAsync`, where one
+corrupt row now fails a whole document listing — the same shape Weaviate's reviewed throw already
+accepted on its search path, which is why it was not given an exception.
+
+**Nobody has observed a corrupt blob in the wild.** Posture and consistency, not an incident.
+
+
+**Goal:** the six sites that read a corrupt metadata blob and return an empty dictionary say so
+instead, matching the two that already do.
+
+**#521 says three stores; scoping it found six sites across five components.** The issue was filed
+from the vector-store angle during 6.2.31 and named PgVector, Qdrant and Azure AI Search. It missed
+`SqliteBm25Index` and `SqliteDocumentStore` — and the latter has **two** sites, one of them reading
+`DocumentMetadata.Tags` rather than chunk metadata, so the same swallow shape reaches a second data
+type.
+
+**The split is six-to-two, and the two are the only ones anybody ever reviewed.** Weaviate throws
+because of a 2026-07-25 review finding (`98b327fd`) that deliberately replaced the tolerant default,
+naming what the others still do: *"silently returning the chunk with empty metadata"*. Redis throws
+because 6.2.31 followed that precedent. The other six are the pre-review default from `179e4f8e`,
+a mechanical serializer migration in April that nobody has revisited.
+
+**The missing-versus-corrupt distinction is already safe, which is what makes this small.**
+`MetadataSerializer.DeserializeMetadata(null)` and `("")` both return **Success with an empty
+dictionary**; only a `JsonException` produces `Failure`. So replacing a fallback with a throw cannot
+fire on an absent field — only on genuinely malformed stored JSON. No upgrade hazard, no data
+migration.
+
+**The six sites do not all have the same blast radius**, which is the design's real question.
+Read rather than inferred from the call-site names:
+
+| site | method | what a throw costs |
+| --- | --- | --- |
+| `SqliteBm25Index` | `LoadIntoMemory` | the index fails to **load** — a startup failure, not a query one |
+| `SqliteDocumentStore` | `GetDocumentsAsync` (tags) | one corrupt row fails the whole document **listing** |
+| `SqliteDocumentStore` | `GetChunksAsync` | that one document's chunks fail |
+| PgVector | `ReadChunk` | one hit fails its search or keyed read |
+| Qdrant | `MapChunk` | same |
+| Azure AI Search | `ReadMetadata` | same, and only on the legacy field — `metadata_entries` is tried first |
+
+**An earlier draft of this block said `SqliteBm25Index` read inside a search loop and that one
+corrupt row would fail a whole query. That was inferred from the call site and is wrong** — it is a
+load path, which is the *easiest* place to fail loudly, not the hardest. Corrected before the
+design was written.
+
+The listing case is the widest, and Weaviate's reviewed decision already accepts that shape: its
+throw is on the search path, where one corrupt hit fails the search. The second question is whether
+the throwing helper belongs in `MetadataSerializer` so a seventh site cannot be written the
+swallowing way, and if so how the caller's identity reaches the message.
+
+**Nobody has observed a corrupt blob in the wild.** This is posture and consistency, not a live
+incident, and the phase should say so rather than inflate it.
+
+### Phase 6.2.33: A Fused Score Is Not a Similarity [status: complete 2026-09-09 — #530; #328 split out to 6.2.34]
+**Surface:** Storage
+**HelpWanted:** no
+**Design:** `docs/plans/2026-09-09-hybrid-score-scale-design.md`
+**Plan:** `docs/plans/2026-09-09-hybrid-score-scale-implementation.md`
+**Completed:** 2026-09-09
+
+**MERGED in #531 (`5d62f58b`)**, verified on `main` by content: the interface member, both stores'
+`minScore: 0.0`, the new dense guard test, and `CanDispatchNatively`'s predicate unchanged.
+
+**SCOPED TO #530; #328 IS NOW 6.2.34** — split on verifiability rather than size. This half is
+provable against the local containers; the semantic ranker is not provable locally at all, and
+shipping them together would have let the unverifiable half ride the verifiable half's green run.
+
+**THE SWEEP'S SURVIVOR WAS A CONTROL MUTATION ON A PATH THIS PHASE DOES NOT TOUCH.** Hardcoding
+`minScore: 0.0` in Azure's **dense** `SearchAsync` left the whole Azure suite green — its dense
+`MinScore` was protected by no test at all. Weaviate's equivalent was caught by a pre-existing test,
+so the gap was Azure's alone; `Search_MinScore_FiltersByCosineSimilarity` closes it, with numbers
+from Azure's documented `1/(2−cos)` formula rather than a simulator artefact. **Second phase running
+where the sweep found an unprotected capability rather than a bug.**
+
+**A test that could not fail was caught during implementation.** Weaviate's first hybrid test passed
+*before* the fix: a candidate topping both fusion arms scores 1.0 under relative-score fusion, and
+no threshold ≤ 1.0 can filter it. Diagnosed rather than tuned away, and the reasoning is pinned in
+the test's own remarks so a later simplification cannot reintroduce it.
+
+**The whole-branch review found no code defect and a cluster of documentation this branch had
+falsified** — including `IHybridSearchable`'s **own summary**, still explaining the guard as "the
+native path *would* threshold" thirty lines above new remarks saying implementations must not. Also
+`SearchOptions.MinScore`'s doc, `CanDispatchNatively`'s rationale, and the `extending.md` snippet
+shown to custom-store authors. In a phase about documentation asserting what the code does not do,
+shipping that would have been the same defect one level up.
+
+**Goal:** the two stores that return backend-fused hybrid scores stop reporting them as
+similarities, and stop thresholding on them — after which #328's semantic ranker lands as the third
+case of the same rule rather than a decision invented for it.
+
+**#328 WAS BLOCKED ON A DECISION THAT TURNED OUT TO BE A SHIPPED DEFECT.** 6.2.5 split the semantic
+ranker off "pending the score-scale decision" and nobody took it. Scoping it found that the decision
+is not hypothetical: `AzureAISearchVectorStore` and `WeaviateVectorStore` already return fused
+scores and already apply a similarity-shaped `MinScore` to them.
+
+**And that scoping was itself corrected before any code was written — the severity was smaller than
+it first read.** `EnsembleBehavior.CanDispatchNatively` already requires `MinScore` to be exactly
+`0.0` before it will dispatch to either store's native hybrid query, so a pipeline caller who sets a
+threshold was never handed a mis-thresholded fused score — the request quietly takes the
+client-side RRF path instead, which is deliberate and pre-existing. **This is not a live
+wrong-results defect for pipeline users; it never was.** What remains is narrower: `HybridSearchAsync`
+is public API on a public store class, and a caller reaching it *directly* — bypassing the pipeline —
+got `MinScore` applied to an ordinal fused score with nothing to warn them, and neither store declared
+a scale a capability probe could discover. The design record checked for the exact mistake this
+milestone made one phase earlier before repeating it: 6.2.31 told readers "filtering happens in the
+pipeline instead" about metadata, and it did not; this phase's own first draft came close to the same
+shape of overstatement about `MinScore` and was corrected before it shipped as a claim rather than
+after.
+
+**The library defines the rule, uses it, and these two do not participate.**
+`ScoreScale.OpaqueRanking` says in its own remarks that RRF and unbounded backend hybrid scores are
+on that scale and that **fixed thresholds must not be applied**. `FederatedVectorStore` declares it;
+`PersistentConversationMemory` probes for it and skips its threshold. **No vector store in the
+repository implements `IScoreScaleAware` at all.**
+
+**And the opposite call was already made deliberately, one store over.** `RedisVectorStore` declines
+`IHybridSearchable` because a store advertising it "would be fusing a score it cannot describe" —
+#86 asked for that judgement. Azure and Weaviate shipped the feature without it.
+
+**The design question is real and not obvious.** `IScoreScaleAware` requires the scale to be
+**constant for the instance's lifetime** — callers probe once and may cache. But both stores serve a
+dense path returning genuine cosine similarity *and* a hybrid path returning a fused score, from one
+instance. What a single instance should declare is the thing to settle before any code.
+
+**#328's ranker then follows the same rule**, opt-in, with a guard that fails loudly rather than
+silently: **the local simulator accepts `queryType=semantic` and a semantic index configuration,
+returns HTTP 200, and returns no `rerankerScore` at all** — measured 2026-09-09. A test written the
+obvious way against it would pass whether or not semantic ranking happened, which is the exact
+defect class this milestone exists to remove.
+
+**Verifiability splits the phase.** #530's half is fully verifiable locally — a declaration and a
+threshold are testable without an Azure account. #328's half needs a real resource (Basic tier or
+higher, billable, region-limited), so it carries the account constraint 6.1 has.
+
+**No consumer has reported either.** Found by reading, in the class of #56.
+
+**#530's half landed exactly as scoped, and it is cheaper than the goal line makes it sound.**
+`IHybridSearchable` gained `HybridScoreScale`, defaulted to `ScoreScale.OpaqueRanking`. Because it is
+defaulted, `AzureAISearchVectorStore` and `WeaviateVectorStore` both became correct **without
+overriding anything** — the whole reason for putting the declaration on the interface rather than on
+each store. Cheap now, with one implementer of `IScoreScaleAware` and two of `IHybridSearchable`;
+adding a member to a public interface after v1.0 is a breaking change. Each store's hybrid path also
+stopped forwarding `options.MinScore` into its result mapping — ignored rather than refused, on
+purpose: `MinScore` lives on shared `RetrievalOptions` and is copied into every path's
+`SearchOptions`, so a caller with a perfectly sensible dense-path threshold should not start crashing
+the moment a store advertises hybrid.
+
+**The mutation sweep found an unprotected capability, not a bug in this phase's own change.**
+Alongside reverting each store's new `MinScore` skip and each new declaration, the sweep also ran a
+control mutation against the capability this phase must *not* regress: hardcoding `minScore: 0.0`
+into Azure's own **dense** `SearchAsync` call, a path this phase does not touch. The whole Azure AI
+Search suite stayed green anyway — dense `MinScore` had no test at all. Weaviate's equivalent
+mutation was already caught by an existing test (`Search_TopKAndMinScore_Honored`), so the gap was
+Azure's alone. Closed with `Search_MinScore_FiltersByCosineSimilarity`, pinned against the local
+simulator's score mapping (cosine similarity 1.0 → score 1.0, 0.8 → ~0.8333, 0.0 → 0.5), and a 0.9
+threshold that keeps only the identical vector.
+
+**A test that could not fail was caught during implementation, not left for the sweep.** Weaviate's
+first hybrid `MinScore` test stored one chunk that matched both the keyword and the vector query — a
+candidate topping both arms of a relative-score fusion scores 1.0, so no threshold at or below 1.0
+could ever filter it, and the test would have passed whether or not the fix existed. Diagnosed rather
+than tuned away: the fix reuses the three-chunk topology from the existing fusion test instead, with
+the vector match ("alpha") and the keyword match ("zebra") on separate chunks, so each chunk's fused
+score stays below the 0.9 threshold and the page is genuinely empty before the fix.
+
+Both suites re-run clean after all four commits: Azure AI Search 36 passed (1 pre-existing,
+unrelated skip), Weaviate 30 passed.
+
+**#328 remains open and is not touched here.** The semantic ranker lands on top of this declaration
+as a third case of the same rule, per the Goal above, but it needs a real, billable Azure resource —
+the local simulator accepts a `semantic` index configuration and a `queryType=semantic` query and
+returns HTTP 200 with no `rerankerScore` at all, so a test written the obvious way would pass whether
+or not ranking actually happened. That half carries 6.1's account constraint and stays pending.
+
+### Phase 6.2.34: The Semantic Ranker, and the Simulator That Lies About It [status: pending — added 2026-09-09, #328]
+**Surface:** Storage
+**HelpWanted:** no
+**Design:** `docs/plans/2026-09-09-semantic-ranker-design.md`
+**Plan:** `docs/plans/2026-09-09-semantic-ranker-implementation.md`
+
+**Goal:** Azure AI Search's semantic ranker, opt-in, declaring its scale — the third case of the
+rule 6.2.33 established rather than a decision invented for it.
+
+**THE SIMULATOR ACCEPTS SEMANTIC SEARCH AND SILENTLY DOES NOT DO IT.** Measured 2026-09-09 against
+`ghcr.io/ellerbach/azure-ai-search-simulator`: it accepts a `semantic` index configuration (HTTP
+201, echoed back), accepts `"queryType": "semantic"` with a `semanticConfiguration`, returns HTTP
+200 with results — and returns **no `rerankerScore` at all**. **A test written the obvious way would
+pass whether or not semantic ranking happened.** So the feature ships with a guard that throws when
+semantic ranking is requested and no reranker score comes back, turning a silent no-op into an error.
+
+**The opt-in is per instance, forced rather than chosen.** Semantic ranking reshapes the score of
+the ordinary `SearchAsync` path, whose scale is `IScoreScaleAware.ScoreScale` — which the interface
+requires to be constant for the instance's lifetime. ~~With it enabled the store implements
+`IScoreScaleAware` and returns `OpaqueRanking`; with it disabled the store does not implement the
+interface and the path keeps its genuine cosine similarity.~~ **Corrected 2026-09-10, at
+implementation: the second clause was not expressible.** A class implements an interface or it does
+not, at compile time; there is no conditional implementation. **The store implements
+`IScoreScaleAware` unconditionally** and returns a value fixed at construction — `OpaqueRanking`
+with the ranker on, `Similarity` with it off. **The off case is still behaviour-preserving, for a
+different reason than this paragraph assumed:** `Similarity` is documented in `ScoreScale`'s own
+remarks as the scale assumed of stores that do *not* implement the interface, and the sole consumer
+(`PersistentConversationMemory`) branches on `OpaqueRanking` specifically, so declaring `Similarity`
+and declining to declare at all are indistinguishable to every caller. The design's §1 recorded this
+correction when it was made; **this block did not, until the phase's own pre-push review caught the
+gap between them.**
+
+**The reranker score is returned as it comes**, not rescaled from 0–4 into a fabricated similarity —
+an invented similarity is what #56 was about.
+
+**`KNearestNeighborsCount` becomes settable** — #328's other half, independent of the ranker and
+verifiable locally unlike the rest.
+
+**Verification is account-blocked**: Basic tier or higher, billable, region-limited. Ships with
+`<VerifiedByReason>` naming the gap, in the same position as 6.1's cassettes.
+
+**BUILT 2026-09-10, and the sweep inverted two of its own predictions.** Seven commits: the option
+and its `k` guard, the semantic configuration on the index, the query asking for ranking with the
+throw when nothing comes back, the scale declaration, the sweep's own missing test, and the guide.
+`Rag.NET.Tests` 1487 passed / 0 skipped; the Azure suite 45 passed / 1 pre-existing skip, against a
+baseline of 36 — nine tests added. **Not breaking:** everything is off by default and the disabled
+path is byte-identical.
+
+**The mutation sweep found the gap in the plan's own test code, not in the implementation.**
+Dropping the `k < 50` validation survived, because the rejection test used `k=10` and the acceptance
+test `k=50` — shifting the threshold from 50 to 11 passed every test while wrongly accepting **49**,
+the one value the guidance is actually about, since the ranker takes up to 50 matches as input.
+Closed with a test at 49, proved to discriminate. **A boundary tested only from far outside it is
+not tested**, which is the same shape as 6.2.31's fused-score test that could not fail.
+
+**Row 6 predicted an unprotected seam and proved the opposite.** Passing `expectRerankerScore: true`
+from `HybridSearchAsync` — the mutation the plan flagged as the one *"nothing may catch"* — failed
+two existing tests, `HybridSearch_FusesKeywordAndVectorArms` and
+`HybridSearchAsync_DoesNotFilterByMinScore`, the second of them 6.2.33's. The dense path's ranker
+cannot leak into the hybrid path unnoticed. **A predicted gap that turns out closed is worth
+recording as loudly as one that turns out open**; the prediction was the guess, the sweep is the
+evidence.
+
+**Row 7 could not be closed, and that is the phase's real finding.** Applying `MinScore` on the
+ranked path survived — **not because a test is missing, but because the line is unreachable
+locally.** The guard throws whenever `RerankerScore` is null, and the simulator never returns one,
+so *everything downstream of the guard* is unreachable against it. **The unverifiable surface is
+therefore wider than the design's §5 first claimed:** not just "Azure's ranker reorders results",
+but which value reaches `Score` when a reranker score is present, and that `MinScore` is skipped on
+that path. §5 is corrected from the sweep rather than left as written. **The guard that makes the
+feature safe to ship is exactly what stands between every local test and the code beyond it** — the
+price of failing loudly, paid knowingly.
+
+**What is verified locally is real:** the option, the `k` guard and its boundary at 49/50, the
+configuration appearing on the index when enabled and absent when not, both declared scales, and —
+the seam that matters — that the store throws when the service accepts the request and does not
+rank. The simulator's defect (HTTP 200, ordinary results, no `rerankerScore`) is **the exact shape a
+real under-provisioned service takes**, so the guard is tested against a faithful instance of the
+failure it exists for.
+
+
 ### Phase 6.3: Release v1.0 [status: pending — but its first work is DONE and was done before this milestone opened: 71 packages are live on nuget.org at 0.1.0 since 2026-08-11, so the account, the key and every package ID are settled. What remains is the v1.0 tag itself. ~~Now gated on 6.2.3~~ — **that gate cleared 2026-08-21** when #340 merged. What still gates the tag is 6.1's recordings, kept as a gate by the operator's 2026-08-20 decision, and 6.2.1's sweep]
 **Goal:** Tag v1.0, plus whatever release mechanics Phase 4.1's packaging pass leaves to
 release time — the release-please run, release notes, the published packages' final metadata.
