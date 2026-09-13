@@ -1,3 +1,4 @@
+using Rag.NET.Testing;
 using Xunit;
 
 namespace Rag.NET.Embeddings.Onnx.Tests;
@@ -29,9 +30,10 @@ namespace Rag.NET.Embeddings.Onnx.Tests;
 /// </remarks>
 public sealed class WhitespaceNormalizationTests
 {
-    private const string SkipReason =
+    private static string SkipReason =>
         "Set RAGNET_ONNX_EMBED_VOCAB to an existing WordPiece vocab.txt (e.g. all-MiniLM-L6-v2's) " +
-        "to run the whitespace normalization pins.";
+        "to run the whitespace normalization pins." + BeirProvisioningHint.Describe();
+
 
     /// <summary>
     /// A newline between two words must not merge them: <c>alpha</c> and <c>beta</c> are separate

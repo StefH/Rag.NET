@@ -1,3 +1,4 @@
+using Rag.NET.Testing;
 using Xunit;
 
 namespace Rag.NET.Embeddings.Onnx.Tests;
@@ -29,9 +30,10 @@ namespace Rag.NET.Embeddings.Onnx.Tests;
 /// </remarks>
 public sealed class NormalizationGuardTests
 {
-    private const string SkipReason =
+    private static string SkipReason =>
         "Set RAGNET_ONNX_EMBED_VOCAB to an existing WordPiece vocab.txt (e.g. all-MiniLM-L6-v2's) " +
-        "to run the guard's real-tokenizer cases.";
+        "to run the guard's real-tokenizer cases." + BeirProvisioningHint.Describe();
+
 
     /// <summary>Position-preserving normalization is the case the guard must let through.</summary>
     [Fact]

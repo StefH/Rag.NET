@@ -14,6 +14,329 @@ The security layer adds three independent, composable features to a Rag.NET pipe
 
 All three are opt-in. Register any combination of them through the `RagBuilder` API. They have no mandatory coupling — you can use the audit log without RBAC, or PII redaction without the audit log.
 
+## Security posture
+
+**Rag.NET is a RAG library with opt-in security features, not a security product.** Everything on
+this page is off until you register it. This section states what the project claims, what it leaves
+to you, and where its current dependency advisories stand — read it before the feature guides below.
+
+### The four families, and where each is documented
+
+| Family | Defends against | Documented |
+|---|---|---|
+| RBAC on chunks | a caller retrieving chunks they should not see | [below](#rbac-on-chunks) |
+| PII detection and redaction | personal data reaching the vector store | [below](#pii-detection-and-redaction) |
+| Audit log | having no record of what was retrieved or answered | [below](#audit-log) |
+| Prompt-injection defences — chunk and query sanitisation, retrieval guards, prompt hardening | attacker-controlled content hijacking the model at query time | [below](#prompt-injection-defences) |
+
+All four families are documented on this page. The feature reference carries the shorter
+[Prompt Injection Fortification](../reference/features.md) entry for the same subject.
+
+### Defaults that fail open
+
+**Two features on this page do nothing by default when the metadata they depend on is absent.**
+Both are deliberate, both are documented in their own sections, and both will silently protect
+nothing if you register them over content that was ingested before you did.
+
+#### RBAC: untagged chunks are world-readable
+
+> Chunks that do not carry the key are world-readable and pass through for every caller.
+
+A chunk without an `allowed_roles` metadata key is visible to everyone. **If you register RBAC
+expecting deny-by-default, you do not have it.**
+
+This is deliberate. The alternative — deny anything untagged — would hide every previously-ingested
+chunk the moment RBAC is registered on an existing corpus, turning a security feature into a silent
+outage. Tagging at ingest is the mechanism, and untagged content is treated as public because that
+is what it was before you turned the feature on.
+
+If you need deny-by-default, tag every document at ingest and treat an untagged chunk as a bug in
+your ingestion, not in your retrieval.
+
+#### Trust levels: untagged chunks are `internal`
+
+`UseTrustLevelGuard` reads a `trust_level` metadata key and **treats its absence as `internal`** —
+the most trusted value. Registered over a corpus ingested without trust tagging, it drops nothing.
+
+Same reasoning as RBAC, same consequence: the feature is real, and it protects exactly the content
+you tagged. See [`UseTrustLevelGuard` treats untagged content as trusted](#usetrustlevelguard-treats-untagged-content-as-trusted).
+
+**A third thing worth knowing, which is narrower scope rather than a fail-open default:**
+`UseQuerySanitiser` applies to `AskAsync` and `AskStreamingAsync` and **not to `RetrieveAsync`** — so
+a retrieval-only caller gets no query sanitisation. See
+[`UseQuerySanitiser` does not apply to `RetrieveAsync`](#usequerysanitiser-does-not-apply-to-retrieveasync).
+
+### What the library does not do
+
+It filters retrieved chunks, redacts at ingest, records an audit trail, and sanitises text. It does
+**not**:
+
+- **authenticate your end users** — you supply an `ICallerContext`; the library never establishes who
+  the caller is,
+- **encrypt anything at rest** — that belongs to your vector store and your disk,
+- **manage keys or secrets** — API keys are read from your configuration,
+- **secure the backing store** — an unsecured Qdrant or pgvector reachable from the internet is
+  reachable whatever this library does.
+
+### The hosting surfaces force an authentication decision
+
+Four packages expose a network surface: `Rag.NET.Api`, `Rag.NET.Api.Grpc`, `Rag.NET.Mcp` and
+`Rag.NET.Mcp.AspNetCore`. `Rag.NET.Mcp.Tool` is a self-contained executable of the same server,
+configured from `appsettings.json` or the environment.
+
+`Rag.NET.Api.Client` and `Rag.NET.Api.Grpc.Client` consume rather than serve, and their security
+relevance is the mirror image: **they hold the API key.** Where it comes from, how it reaches the
+process, and whether it ends up in a log or a crash dump are the consuming application's
+responsibility — the clients read it from the configuration you give them and send it on every
+call.
+
+**None of them serves an unauthenticated surface by accident**, and the two mechanisms differ:
+
+- **`Rag.NET.Mcp.AspNetCore`** attaches its API-key filter to the same convention builder that maps
+  the endpoints, so "mapped but unauthenticated" is not expressible. `MapRagNetMcp` throws if the
+  transport was never configured.
+- **`Rag.NET.Api`** cannot do that — registration and mapping happen on two builders that cannot see
+  each other — so `MapRagNetApi` detects instead, throwing when options are missing, when the
+  authentication middleware is absent, and when any of its routes has been made auth-exempt.
+
+`AllowAnonymous` exists on the MCP transport as a real opt-out for a host already behind an
+authenticating gateway. The guard separates *someone decided this* from *nobody thought about it*;
+it does not make the anonymous case impossible.
+
+**The limitation worth knowing: the API key is a shared secret, not an identity.** Every client
+presenting it is indistinguishable from every other, and there is no revocation short of changing
+the key and redeploying everything that holds it. It is a deployment boundary, not an authorization
+model — use it behind a gateway that does identity if you need per-client control.
+
+### Dependency advisories
+
+As of 2026-09-11 the repository carries five open Dependabot advisories. **None of them is in the
+dependency closure of any published NuGet package.**
+
+| Package | Severity | Where it lives | Patch |
+|---|---|---|---|
+| `image-size` (×2) | high | Docusaurus, which builds this documentation site | none available |
+| `nltk` | high | `benchmarks/library-comparison-python/`, a comparison harness | none available |
+| `qs` (×2) | medium | `webpack-dev-server`, reached only by `npm start` | pinned to 6.16.0 here |
+
+If you install any Rag.NET package, none of the above enters your dependency graph — they belong to
+this repository's own tooling. The two unpatched advisories have no fix available upstream; the one
+that did has been pinned in `package.json`'s `overrides` block.
+
+## Watching the model boundary
+
+**Every security feature on this page acts before the model is called.** Sanitisers run at ingest and
+before retrieval, guards run on retrieved chunks, prompt hardening runs at assembly. Nothing in
+Rag.NET inspects what comes *back*.
+
+`IConfidenceScorer` looks like it might, and does not: it scores whether a sentence is **supported by
+the retrieved context**, on a 0–1 scale, and fails open at `1.0` when it cannot score. That is a
+groundedness signal for answer quality. It is not an inspection of the response for a secret.
+
+The concrete consequence: **a credential that survives ingest-time redaction, sits in a chunk, and
+gets summarised back to a user is not seen by any part of this library.**
+
+### The shape of the answer
+
+Rag.NET resolves `IChatClient` from DI. Anything that decorates `IChatClient` therefore sits between
+Rag.NET and the model, and sees both directions — the prompt as sent, and the response as returned.
+That is the insertion point for a monitor, and it needs nothing from Rag.NET: no package reference,
+no abstraction, no integration.
+
+### A worked example
+
+[AI.Sentinel](https://github.com/MarcelRoozekrans/AI.Sentinel) is one such monitor — `IChatClient`
+middleware that scans both directions through a detector pipeline and can block, alert or log.
+
+> **Disclosure:** AI.Sentinel is written by the same author as Rag.NET. It is named here because it
+> is a concrete example that was actually tested against this library, not because Rag.NET depends
+> on it or recommends it over alternatives. Any `IChatClient` decorator composes the same way.
+
+```csharp
+// 1. The monitor, wrapping your provider client.
+//    Severity policy and detector configuration are AI.Sentinel's own -- see its documentation.
+services.AddAISentinel(opts => { /* ... */ });
+services.AddChatClient(new OpenAIChatClient(/* ... */)).UseAISentinel();
+
+// 2. Rag.NET afterwards. The order matters -- see below.
+services.AddRagNet(b => b
+    .UseRbac()
+    .UseCostBudgeting(o => o.DailyLimit = 10m));
+```
+
+### Register the monitor first
+
+**Rag.NET's own `IChatClient` decorators rewrite the DI descriptor, so they can only wrap what is
+already registered.** `UseCostBudgeting` and `UseFallbackChain` both do this. Register your monitor
+*after* them and Rag.NET's decorator wraps nothing.
+
+That is not silent. Resolving the pipeline throws:
+
+> UseCostBudgeting is not applied to the IChatClient this container resolves. It decorates whatever
+> is registered at the moment it runs, and this IChatClient was registered (or replaced) afterwards,
+> so the feature UseCostBudgeting configures is silently absent. Move the UseCostBudgeting call after
+> the IChatClient registration. This is checked when the RAG pipeline is resolved because a
+> registration made later cannot be seen at registration time.
+
+**Two details worth knowing**, both measured on 2026-09-11:
+
+- **The check runs when the pipeline is resolved, not when `IChatClient` is.** Resolving the chat
+  client alone succeeds and hands back the bare monitor, so a smoke test that only resolves
+  `IChatClient` will report a composition that is in fact broken. Resolve `IRagPipeline`.
+- **In the correct order, Rag.NET's decorators wrap around the monitor** — the resolved client is
+  `CostTrackingChatClient` → your monitor → your provider. That is the right nesting: the monitor
+  sits closest to the model, so it sees the prompt exactly as sent and the response exactly as
+  returned.
+
+### What overlaps, and what that costs
+
+A monitor is not purely additive with the defences on this page.
+
+| | Rag.NET | A model-boundary monitor |
+|---|---|---|
+| Prompt injection | query sanitisers, retrieval guards, prompt hardening — **before** the call | detectors on the assembled prompt — **at** the call |
+| PII | redacted at ingest, before embedding | detected in the response |
+| Credentials in a response | **not covered** | covered |
+| Groundedness | `IConfidenceScorer` against retrieved context | hallucination detectors |
+
+**Prompt injection is covered twice, by different means.** Whether that is defence in depth or
+duplicated cost depends on your configuration — two LLM-backed passes over every query is a real
+expense. Rag.NET's regex sanitisers are cheap; its LLM sanitiser and a monitor's LLM-escalating
+detectors are not. Decide deliberately rather than enabling both because each page recommends it.
+
+### Verify detection against your own configuration
+
+**Registration is not protection, and the two look identical from outside.** A monitor with detectors
+registered but a dependency unset — an embedding generator, a classifier client — can scan clean and
+report nothing wrong. That was observed in a bare configuration during the 2026-09-11 testing, with
+injection detectors present.
+
+Send a known-bad prompt through your configured pipeline and confirm it is caught, before relying on
+it. This applies to Rag.NET's own sanitisers equally.
+
+### Version compatibility, as measured
+
+AI.Sentinel 2.0.1 targets `net8.0`/`net9.0` while Rag.NET targets `net10.0`, and it builds against
+`ZeroAlloc.Mediator` 4.1.4 and `ZeroAlloc.ValueObjects` 1.7.1 where Rag.NET pins 5.0.1 and 2.0.5 —
+two major versions apart, which NuGet resolves in favour of the higher.
+
+**Verified on 2026-09-11 against those exact versions**: the container builds, `IChatClient` resolves
+to `SentinelChatClient`, 55 detectors resolve and construct, and a scan completes without
+`MissingMethodException` or `TypeLoadException`.
+
+**What that check does not cover:** it exercised construction and the scan path, not every detector's
+internals. A detector reaching a changed API only on an alert path was not reached. Both packages
+move independently, so treat this as a dated observation rather than a standing guarantee, and re-run
+it for the versions you actually deploy.
+
+## Prompt injection defences
+
+Indirect prompt injection is the primary security risk specific to RAG: attacker-controlled content —
+a document, a scraped page, an email — carries instructions that hijack the model when a query happens
+to retrieve it. The content is data to you and instructions to the model.
+
+`Rag.NET.Security` defends in four layers. **They are only comprehensible positionally**, so this
+table is in pipeline order rather than alphabetical:
+
+| Layer | Interface | Registration | Runs |
+|---|---|---|---|
+| Chunk sanitisation | `IChunkSanitiser` | `UseChunkSanitiser` / `UseLlmChunkSanitiser` | at ingest, before embedding |
+| Query sanitisation | `IQuerySanitiser` | `UseQuerySanitiser` / `UseLlmQuerySanitiser` | before retrieval |
+| Retrieval guards | `IRetrievalGuard` | `UseRetrievalGuard` / `UseTrustLevelGuard` | on retrieved chunks |
+| Prompt hardening | answer-engine decorator | `UsePromptHardening` | at answer assembly |
+
+All are opt-in and independent. Registering none of them is the default.
+
+### Two extension points you already know
+
+**`UseRbac` registers an `IRetrievalGuard`.** `RbacRetrievalGuard` is the same kind of object as
+`RegexRetrievalGuard` and `TrustLevelRetrievalGuard`, in the same chain — so RBAC and the injection
+guards compose by registration order like any other chain, and there is no separate "RBAC pipeline"
+to reason about.
+
+**`IChunkSanitiser` is shared with PII redaction.** `UsePiiDetection` and `UseChunkSanitiser` register
+into the same ordered chain, so the chaining rules in
+[Chaining regex and LLM detection](#chaining-regex-and-llm-detection) apply unchanged — sanitisers run
+in registration order, and each sees the previous one's output.
+
+### The regex/LLM pairing
+
+Three of the four layers ship a cheap deterministic implementation and an expensive semantic one,
+registerable independently or together. This is the same shape as
+[PII detection](#pii-detection-and-redaction), and the same trade-off: regex is free and literal, the
+LLM variant costs a model call per item and catches paraphrase.
+
+The regex implementations share **one pattern**, case-insensitive with a 1000 ms match timeout. It
+targets role-switch phrases (`ignore previous instructions`, `you are now`, `act as`, `disregard`,
+`new instructions`, `system prompt`) and delimiter injection (`<|system|>`, `<|user|>`, `[INST]`,
+`### instruction`). Matches are replaced with `[REDACTED]` and logged with the matched pattern.
+
+**They fail open.** If sanitisation throws — a regex timeout on a pathological input, an LLM call
+failing — the original text is returned unchanged and the failure is logged. A sanitiser that threw
+would take the whole request down; one that returns unsanitised text does not, and says so in the
+log. The `Use*Llm*` variants resolve `IChatClient` from DI and throw at container resolution if none
+is registered.
+
+### `UseQuerySanitiser` does not apply to `RetrieveAsync`
+
+Query sanitisation is applied by a pipeline decorator that wraps `AskAsync` and `AskStreamingAsync`.
+**`RetrieveAsync` forwards the query unchanged.**
+
+If you use Rag.NET for retrieval only — fetching chunks and generating elsewhere — registering
+`UseQuerySanitiser` has no effect on that path. There is a reasonable argument for it: injection
+hijacks a model, `RetrieveAsync` reaches none, and redacting `act as` from a legitimate query about
+acting would cost recall for no security gain. Sanitise at your own generation boundary if that is
+where your model call happens.
+
+### `UseTrustLevelGuard` treats untagged content as trusted
+
+A chunk with no `trust_level` metadata is read as **`internal`** — the most trusted value. So
+registering the guard over a corpus that was ingested without trust tagging **drops nothing**, and
+does so silently.
+
+This is the same shape as [RBAC's world-readable default](#defaults-that-fail-open), and for the same
+reason: a guard that hid every untagged chunk the moment it was registered would turn a security
+feature into an outage.
+
+`trust_level` is set at ingest, by whatever pulls the content — a web crawler or email connector
+should mark what it fetches as `external` or `untrusted`. `TrustLevelGuardOptions` then decides what
+happens: `DropUntrusted` (default `true`) removes `untrusted` chunks, and `WarnOnExternal` (default
+`true`) logs when `external` ones are retrieved.
+
+### Prompt hardening
+
+`UsePromptHardening` decorates the answer engine with a system prefix instructing the model to treat
+retrieved content strictly as data. The default says so explicitly; `PromptHardeningOptions.SystemPrefix`
+replaces it.
+
+This is the layer that assumes the others leaked. It costs nothing per request and is the cheapest
+thing on this page.
+
+### Confirming a guard actually ran
+
+Both retrieval guards emit a `ragnet.security.guard` activity carrying `security.guard.type`
+(`regex`, `trustlevel`) and `security.guard.action` (`redact`, `drop`). Redactions and drops are also
+logged with the document id.
+
+**Registration is not protection** — a guard registered over untagged content, or a sanitiser whose
+pattern does not match your attacker, is silent in exactly the way a working one is. Send known-bad
+content through and confirm the activity fires before relying on it.
+
+### Composing the layers
+
+```csharp
+services.AddRagNet(b => b
+    .UseChunkSanitiser()        // ingest: strip injection patterns before embedding
+    .UseQuerySanitiser()        // pre-retrieval: strip them from the query too (AskAsync only)
+    .UseRetrievalGuard()        // retrieved chunks: redact what survived
+    .UseTrustLevelGuard(o => o.DropUntrusted = true)
+    .UsePromptHardening());     // answer: tell the model the content is data
+```
+
+Each is independent — register the layers you want. The LLM variants (`UseLlmChunkSanitiser`,
+`UseLlmQuerySanitiser`) slot in beside their regex counterparts and require a registered
+`IChatClient`.
+
 ## RBAC on Chunks
 
 Role-based access control filters retrieved chunks based on an `allowed_roles` metadata key. Chunks that do not carry the key are world-readable and pass through for every caller.

@@ -1,6 +1,567 @@
 # Session State
 
-**Last updated:** 2026-09-10 — **twice in one day, both at the merge.** 6.2.35 merged as #540 at
+**Last updated:** 2026-09-13 — **at the merge.** #575's derived guard merged as #588. Issue work,
+not a numbered phase.
+
+**KEYING ON THE GROUND TRUTH FOUND MORE THAN KEYING ON THE SYMPTOM.** #575 reported two skip sites
+missing the provisioning hint, found by searching for an identical sentence. Keying on the **five
+variables `~/.cache/ragnet-beir/env.sh` actually exports** found **five** — the other three phrase
+their gates differently and a sentence search could never have seen them.
+
+**AND THE SENTENCE WOULD HAVE BEEN WRONG THE OTHER WAY.** Seventeen test files carry a
+`"Set RAGNET_…"` message, but most gate on Whisper, Tesseract or Document Intelligence settings
+`env.sh` does not provision. **A phrasing-keyed guard would have demanded a false claim in six
+places.** #575 called "which gates count" the real work; the answer is that the variable list is
+ground truth and the wording is not.
+
+**THE INVENTORY NOW DERIVES ITSELF.** `SkipReasonWiringTests` walks `tests/`, selects files that
+*call* a skip and name a provisioned variable, and requires the hint — directly or through a shared
+skip reason that already carries it, which ~30 cases do via `BeirHarness.SkipReason`. A new test
+gating on a provisioned variable is caught the day it is written; adding a **variable** is a
+deliberate one-line decision. The five names are hard-coded because **CI has no copy of `env.sh`**.
+
+**TWO CALIBRATION MISTAKES, AND THE PATTERN IS NOW UNMISTAKABLE.** A substring match on
+`Assert.Skip` flagged two files that only mention it in **doc comments**; fixed by matching the call
+shape `TestGateTests.SkipGateCall()` already uses, deliberately the same so two guards cannot
+disagree about what a skip site is. And **the first mutation test passed when it should have
+failed** — it removed one of a file's two hint calls, but the guard is per-file by design, since one
+`SkipReason` property legitimately serves several sites.
+
+**THIS IS THE FOURTH TIME IN TWO DAYS THAT A GUARD'S CALIBRATION, NOT ITS IDEA, WAS THE DEFECT.**
+Text scans gave 42-vs-3 for one quantity; a proposal-language scan found 1 where the real answer was
+7; #560's guard failed eleven correct entries by accepting types but not members; and this one
+flagged two files for a doc comment. **The idea was right every time. The matcher was wrong every
+time.** Budget for calibrating a guard, and mutation-test it before trusting a number it produces.
+
+**A PRIOR RULING WAS REVERSED, CORRECTLY.** 6.2.42 duplicated the hint helper rather than couple
+unrelated test projects — right at two copies, wrong at five call sites across four projects with
+nothing keeping them in step. It now lives in `Rag.NET.Testing`.
+
+**FILED: #587**, the `artifacts/packages` papercut — `EveryPackageCarriesTheVersionGitVersionDerives`
+fails on every branch switch because GitVersion derives the version from the branch name. **Six
+occurrences in one day**, each costing a ~3-minute repack of 73 packages. Filed after being carried
+as a verbal note five times.
+
+**STILL OPEN FOR THE OPERATOR:** close **#571** as a duplicate of **#246**, and close **#560** and
+**#575** if their findings satisfy.
+
+**Milestone 6 remains two account-blocked phases** — 6.1 and 6.3. **Locally finishable:** #559,
+#587, #246 once it reports itself, and AI.Sentinel #205.
+
+**Previously, 2026-09-13 — at the merge.** #560's guard merged as #584. Issue work, not a
+numbered phase.
+
+**#560's PREMISE WAS MEASURED AND DID NOT HOLD.** It asks whether other `✅ Done` entries in
+`features.md` are stale proposals. Across **all 64** — the issue says 53; the surface grew —
+**exactly one** carries proposal-shaped language, and the entry that prompted the issue was already
+corrected by 6.2.40. The rest are backed by shipping code, spot-checked against source. **Not 52
+unaudited false claims: one stale entry, already fixed.**
+
+**WHAT WAS REAL: seven entries named nothing a reader could call** — which is the original complaint,
+that the prompting entry "named none of the shipped registration methods". Each now names its entry
+point, and `FeatureClaimSymbolTests` requires every Done entry with a **Package:** line to name a
+backticked token that **resolves against the produced assemblies**, reusing the catalog
+`DocsCodeExamplesTests` already trusts.
+
+**TWO WRONG ANSWERS ON THE WAY, AND THE SECOND NEARLY DID DAMAGE.** Three text-shape scans were
+tried and the first two were confidently wrong — one stripped the `**Status:**` line, which is
+*exactly* where several entries name their type, and one rejected `GetDeltaToken()` for carrying
+parentheses. Then **the guard's own first draft failed eleven entries** by accepting types only,
+including ones naming `DecayRate`, `AskAsync` and `SystemPrompt` — callable entry points that happen
+to be members. **Editing eleven correct entries to satisfy it would have damaged the documentation
+to please a bad check.** Widened instead: 11 failures became the 7 real ones.
+
+**THE LESSON, THIRD TIME THIS WEEK: a mechanical check is only worth what its calibration is worth.**
+Prefer resolving symbols against assemblies over matching prose shapes, and when a guard fails work
+you believe is correct, suspect the guard before editing the work.
+
+**WHAT NO GUARD SETTLES.** One resolvable symbol is enough, so an entry naming a real type while
+describing behaviour that type does not have still passes. `FeatureClaimTests` still cannot tell
+whether described work was done. That residual is recorded on #560 rather than implied away.
+
+**STILL OPEN FOR THE OPERATOR, and the list is not shrinking:** close **#571** as a duplicate of
+**#246**; close **#560** if the measurement satisfies; and file the `artifacts/packages` papercut —
+**five occurrences now**, every branch switch, because GitVersion derives the version from the branch
+name and `EveryPackageCarriesTheVersionGitVersionDerives` compares against it. The fix is probably to
+skip the check when the packages were built for a different branch.
+
+**Milestone 6 remains two account-blocked phases** — 6.1 and 6.3. **Locally finishable:** #559,
+#575, #246 once it reports itself, and AI.Sentinel #205.
+
+**Previously, 2026-09-13 — at the merge.** #246's diagnostic merged as #581. Not a numbered
+phase: issue work, recorded here because the findings outlive it.
+
+**#246's MECHANISM IS RULED OUT BY MEASUREMENT. BOTH PREVIOUS FIXES WERE INERT.** The intermittent
+`MessageLockLost` in `ReceiveDeadLetterAsync` had been diagnosed twice as lock expiry and fixed twice
+by raising the queue's `LockDuration`, most recently `PT1M` → `PT5M`. Instrumenting the line that
+throws showed the lock carrying its **full 300 seconds** at the moment of the call, on every observed
+run — matching the CI failure that threw **1.318 s** into the test. **A lock with five minutes left
+has not expired.** Neither change could ever have helped.
+
+**IT REPRODUCES LOCALLY — NOT CI-ONLY, NOT UBUNTU-ONLY.** 1 failure in 20 runs on Windows against the
+same emulator image. `straysHeld=0` and `deliveryCount=1` on every pass, so the stray-accumulation
+path is not involved and the message is on its first delivery.
+
+**A NEW CLUE, FROM VERIFYING THE DIAGNOSTIC RATHER THAN FROM THEORISING.** Forcing a deliberate
+double-settle produced `MessageLockLost` with `lockRemaining=300.0s` — **the same signature as the
+real failure.** Settling an already-settled message reports a lost lock while the lock still looks
+valid. So of the two candidates the exception names, *"already been removed from the queue"* now
+leads over *"received by a different receiver instance"*. **Consistent with, not proof of** — but the
+first time this bug's mechanism has been narrowed by measurement rather than argument.
+
+**NOT FIXED, DELIBERATELY.** The failure could not be caught with instrumentation attached: 20 local
+runs, 5 full-project runs, and 8-way CPU pressure all stayed green. **Guessing a third time is how
+the first two fixes happened.** What shipped is the evidence path — silent on the passing path, and
+since 6.2.42 CI dumps a failing project's log, so **the next occurrence arrives self-documenting**.
+
+**THE CANDIDATE FIX, RECORDED RATHER THAN TAKEN.** `ReceiveDeadLetterAsync` receives-and-completes
+purely to read `DeadLetterReason`. This class already prefers peeking on shared queues —
+`QueueStillHoldsAsync` does, with a comment explaining why — and **a peek takes no lock, so
+`MessageLockLost` becomes structurally impossible.** Not done: it would remove the failure without
+explaining it, and peek has not been confirmed to expose `DeadLetterReason` on the emulator's
+dead-letter sub-queue. Decide once the next failure reports itself.
+
+**STILL OPEN FOR THE OPERATOR:** close **#571** as a duplicate of **#246**, and file the
+`artifacts/packages` papercut — every branch switch invalidates it, because GitVersion derives the
+version from the branch name and `EveryPackageCarriesTheVersionGitVersionDerives` compares against
+it. Hit four times now. The fix is probably to skip the check when the packages were built for a
+different branch, rather than repacking each time.
+
+**Milestone 6 remains two account-blocked phases** — 6.1 and 6.3. **Locally finishable:** #559, #560,
+#575, #246 itself once it reports, and AI.Sentinel #205.
+
+**Previously, 2026-09-12 — at the merge, as the previous ten were.** 6.2.43 merged as #577.
+
+**GUARD C PAID FOR ITSELF THE SAME DAY IT SHIPPED, AND IT OVERTURNED A CONCLUSION THIS PROJECT HAD
+ACTED ON TWICE.** #577's CI went red on the same AzureServiceBus flake that cost a full log read, a
+count comparison against `main` and an out-of-repo reproduction this morning — and still could not be
+attributed. This time the dump printed it in one command:
+
+> `failed ServiceBusIngestionIntegrationTests.PermanentFailure_LandsInTheDeadLetterQueueWithItsReason (1s 318ms)`
+> `ServiceBusException : The lock supplied is invalid … (MessageLockLost).`
+> `at ServiceBusReceiver.CompleteMessageAsync(…)` / `at …ReceiveDeadLetterAsync(…)`
+
+**That is #246's test and #246's exception, and #246 is closed.** #571 was filed only because the
+test could not be named; it now can, and both issues carry the evidence.
+
+**The timing falsifies the standing diagnosis.** The failure is **1.318 s** into the test, and
+`Config.json` declares **`PT5M`**. A five-minute lock cannot expire 1.3 seconds in, so **lock duration
+is not the mechanism and both prior fixes that raised `LockDuration` were inert** — exactly what
+`EmulatorLockBehaviourTests` was written to suspect after #246 was misdiagnosed twice. The failing
+call is `CompleteMessageAsync` on a dead-letter message just received, which is the shape the
+*stopped-processor* hypothesis predicts, not the shape lock expiry predicts.
+`AStoppedProcessorConsumesNothingMore` already exists to test it.
+
+**A re-run of the identical commit passed**, confirming the flake. The race itself remains unfixed;
+6.2.42 scoped only the reporting, deliberately.
+
+**Previously in this entry's phase — 6.2.43 shrank twice, both times before any code.**
+
+**THE PHASE SHRANK TWICE, BOTH TIMES BEFORE ANY CODE WAS WRITTEN, AND THAT IS THE USEFUL PART.**
+6.2.43 was scoped from #184 to add a fluent entry point. What it shipped is **one test and one
+sentence**.
+
+1. **The design contradicted itself.** It asserted both that the new builder methods would delegate
+   to `AddChatClient` and that nothing new would enter core's dependency closure. `AddChatClient`
+   lives in `Microsoft.Extensions.AI`; `src/Rag.NET` references only
+   `Microsoft.Extensions.AI.Abstractions`. Both could not hold.
+2. **Then the operator asked whether it was over-engineering, and it was.** The methods unified
+   syntax without reducing decisions — same objects constructed, same three things the caller must
+   know exist, and the verbose part was never the registration but the client construction, unchanged
+   either way. Against a stated goal of *"fewest decisions to something working"*, **the decision
+   count was identical and only the punctuation moved.** The cost was a core package reference plus
+   **two ways to register one service** — the trap the design had rejected its own alternative for
+   laying, which is an inconsistency in the reasoning rather than a nuance.
+
+**WHAT SHIPPED IS A DELETED CONSTRAINT THAT NEVER EXISTED.** `getting-started.md` told readers to
+*"Register them before calling `AddRagNet`"*. `RegistrationOrderTests` registers both orders, resolves
+the pipeline in each, and asserts each container hands back the **exact instances registered** —
+because resolving in both orders proves only that neither throws, not that they agree. Both pass.
+Every consumption goes through `sp.GetService` inside a factory lambda, so order is irrelevant.
+
+**#184's PREMISE HAD DRIFTED AND TWO OF ITS CLAIMS WERE DEAD.** The builder already exists and the
+quickstart already chains; **#181 is merged**, killing its "the bump is happening regardless"
+argument, and **#161 is closed**. Commented on the issue rather than closed, since the single-statement
+setup remains a legitimate taste call for the maintainer.
+
+**A CONSEQUENCE FOR WHOEVER PLANS NEXT.** #184 is labelled `breaking-change` and was the strongest
+remaining argument for doing breaking work before v1.0 tags. **6.2.43 shipped nothing breaking, so
+that deadline argument has dissolved** — the rest of the locally-finishable work can be sequenced on
+merit rather than against the release.
+
+**TWO METHOD NOTES, BOTH OF WHICH NEARLY PRODUCED FALSE FINDINGS.** Counting the extension surface by
+grep gave **42 and 3 for the same quantity**, because C# signatures wrap across lines. And locating
+symbols in the M.E.AI assemblies with `strings` reported **zero matches for everything** — the command
+is not installed on this machine, which reads exactly like proof of absence. Both were caught; neither
+would have been obvious in review.
+
+**GUARD C PAID FOR ITSELF.** `PackageValidation` failed twice this phase on stale `.nupkg` files from
+the previous branch, and 6.2.42's CI log dump named the failing test and the exact cause in one
+command both times — its first use on a real failure outside the phase that built it.
+
+**NOT FILED, A RECURRING PAPERCUT:** every branch switch invalidates `artifacts/packages`, because
+GitVersion derives the version from the branch name and `EveryPackageCarriesTheVersionGitVersionDerives`
+compares against it. **Third occurrence this session.** The fix is probably to have the guard skip
+when the packages were built for a different branch, rather than to repack each time.
+
+**Milestone 6 remains two account-blocked phases** — 6.1 Recorded Responses and 6.3 Release v1.0.
+**Locally finishable:** #559, #560, #575, #571's emulator race, and AI.Sentinel #205. **#314 stays
+open**, correctly attributed to SDK support.
+
+**Previously, 2026-09-12 — at the merge, as the previous nine were.** 6.2.42 merged as #572;
+this entry was written from the session that built it, on `chore/6242-merged`.
+
+**THE GUARDS CAUGHT THINGS WHILE BEING BUILT, WHICH IS THE ONLY EVIDENCE THAT COUNTS FOR THIS
+PHASE.** Two findings are worth carrying forward more than the guards themselves:
+
+1. **The em-dash test earned its keep the day it was written.** `${#header}` counted **bytes under
+   bash** — not only under `sh`, which is all the plan predicted — because this environment sets
+   neither `LANG` nor `LC_ALL`. The first fix, `export LC_ALL=C.UTF-8`, then turned out to fail
+   **silently** on a machine lacking that locale: `export` exits 0 regardless, so `set -e` never
+   fires, and the hook would have rejected valid headers while printing "the header is 104
+   characters" — a message indistinguishable from the guard working. It now probes a known
+   one-character, three-byte string and refuses to run if the count is wrong.
+2. **Guard B's wirings were covered by nothing, and only the final whole-branch review saw it.**
+   Deleting the hint call from either Onnx file failed no test on any machine; on a corpus-less
+   runner — every CI runner — the composition test took its null branch and passed even with the
+   suffix removed. **The sentences were tested; nothing tested that anything used them.** Two
+   task-scoped reviews missed this because each saw only its own diff.
+
+**A PREMISE WAS FALSIFIED BY EVIDENCE RATHER THAN LEFT OPEN.** The design and plan both recorded
+the Linux MTP log encoding as unverified, and the BOM sniff was written to hedge it. Docker was
+available, so it was checked instead of reasoned about — twice, by the implementer and
+independently by the reviewer, each in a fresh `mcr.microsoft.com/dotnet/sdk:10.0` container with
+no reused Windows build output. **Linux produces the identical UTF-16LE with a `fffe` BOM**, so
+`iconv` fires on both platforms and `cat` is the dead branch. The stale caveat was corrected in the
+implementation plan; the design never made the claim.
+
+**WHAT THE PHASE DELIBERATELY DID NOT DO.** Guard A's **adoption cannot be tested** — a hook does
+nothing until someone runs `git config core.hooksPath .githooks`, so it helps contributors who opt
+in and nobody else, including a future session on a fresh clone. The *enumerate-the-suites* rule
+stays prose, because a guard for it would have to make the judgement the rule disciplines. Neither
+is an oversight; both are recorded in the design, the tests' own remarks and the phase record.
+
+**ONE GAP FOUND AT THE END AND NOT CLOSED.**
+`tests/Rag.NET.Chunking.IntegrationTests/LateChunkingIntegrationTests.cs:46` and `:96` carry the
+**identical** skip sentence Guard B fixed elsewhere, gated on the same `RAGNET_ONNX_EMBED_*` pair
+set by the same `env.sh`, with no hint — and `OnnxEmbeddingGeneratorSmokeTests`' own class doc names
+that file as sharing the gate. Guard B's premise applies to them exactly. Related:
+`SkipReasonWiringTests` pins a **hardcoded four-site inventory**, so it cannot notice a site that
+never got a hint. `SecurityDocumentationTests` is the stronger precedent in this repository — it
+derives its list from the filesystem, so it fails when someone **adds** one. **Filed as #575.**
+
+**Milestone 6 remains two account-blocked phases** — 6.1 Recorded Responses and 6.3 Release v1.0.
+**Locally finishable:** #184 (breaking, pre-1.0 is the moment), #559 and #560 from 6.2.40, #571's
+emulator race (this phase made it legible, deliberately without chasing it), the gap above, and
+AI.Sentinel #205 in the other repository. **#314 stays open**, correctly attributed to SDK support.
+
+**Previously, 2026-09-12 — complete, not yet pushed, and its final whole-branch review's
+findings are fixed.** A final whole-branch review of `feat/6242-mechanical-guards` found ten
+findings — one guard test reading raw YAML text where `TestProject.ReadWorkflowCommands` already
+existed for exactly that mistake; three "BEIR present but unreferenced" hint call sites wired to
+nothing any test would notice if deleted; a doc comment and a pre-push-review sentence both stating
+an overload relationship backwards; a workflow comment still hedging on Linux after this same phase
+closed that question with evidence; a ROADMAP sentence claiming a correction the design document
+never needed; a `STATE.md` paragraph (below) contradicting its own parenthetical; the off-by-one
+commit count this paragraph itself carried; a third Onnx skip site that never got the hint its two
+siblings did; and two documentation gaps — the hook's locale dependency, and its one-line adoption
+path buried 900 lines into a reference page. All ten are fixed on this branch.
+
+**The hardest of the ten, and the one this entry singles out:** the BEIR-hint wiring tests could
+have their `+ …Hint()` suffix deleted from any of the three `SkipReason` properties and nothing
+would fail, on any CI runner — a pure runtime composition test cannot tell "the call happened and
+returned empty" from "the call was deleted" when the live hint is empty, which it always is on a
+machine without `~/.cache/ragnet-beir`. Closed with a new `RepoConventions` guard,
+`SkipReasonWiringTests`, that reads each `SkipReason` property's own source text — anchored on the
+property's signature so a doc comment describing the call cannot satisfy it — and asserts the hint
+call appears inside its expression body. That is deterministic on any machine, because it never
+touches the environment. The runtime composition test in
+`Rag.NET.Benchmarks.Quality.IntegrationTests.SkipMessageTests` stays too, tightened to an exact
+equality on the composed string rather than a substring check — it still catches a wrong
+composition whenever the live hint happens to be non-null, which it is on this machine.
+
+**Counts after the fix wave:** `RepoConventions` **111 passed / 2 skipped** (was 107/2, +4 from the
+new wiring guard's four `[InlineData]` cases), `Embeddings.Onnx.Tests` unchanged at 141/10
+unprovisioned and 151/0 provisioned, `Rag.NET.Benchmarks.Quality.IntegrationTests` unchanged at
+154/118 unprovisioned and 180/92 provisioned, build 0 warnings. Full account, including which of
+Important 2's two offered approaches was chosen and why, in
+`.superpowers/sdd/2026-09-12-mechanical-guards-implementation/final-fix-report.md`.
+
+**Previously, 2026-09-12 — the phase's own record, before its final whole-branch review.**
+**Complete, not yet pushed.** All three guards are built and tested
+on `feat/6242-mechanical-guards` (ten commits ahead of `main` at `305db773`), and this entry was written from the
+session that verified the phase and wrote its record. Unlike the last several entries, this one is
+not "at the merge" — by explicit instruction the PR is opened afterward, by the operator, not by this
+session, so nothing here has merged yet.
+
+**All seven Step-1 suites match their stated expectations exactly, and both BEIR triples confirm
+Guard B's premise.** `RepoConventions` 107 passed / 2 skipped (was 101/2 before this phase's six new
+tests), `PackageValidation` 23/23 (no repack needed — `artifacts/packages` was not stale), `Rag.NET.Tests`
+1499/1499, build 0 warnings, docs site builds. Sourced `~/.cache/ragnet-beir/env.sh` before writing
+anything about provisioning: `Embeddings.Onnx.Tests` went from 141 passed / 10 skipped to **151/0**;
+`Rag.NET.Benchmarks.Quality.IntegrationTests` went from 154/118 to **180 passed / 92 skipped** — the
+same class of gap Guard B's message exists to name. `Rag.NET.E2ETests` did not run — `RequiresLlm`,
+nightly-only, correctly out of scope here.
+
+**THE LINUX ENCODING QUESTION IS CLOSED BY EVIDENCE.**
+`docs/plans/2026-09-12-mechanical-guards-implementation.md`'s self-review said the Linux log
+encoding was unverified and that the BOM sniff existed because of that uncertainty (the design
+document's own prose never made the claim — checked directly — so only the implementation plan
+needed correcting, in two places). It was verified **twice** during Task 1: once by the implementer, once independently
+by the re-reviewer, each inside a fresh `mcr.microsoft.com/dotnet/sdk:10.0` container with no reused
+Windows build output. **Linux produces the identical UTF-16LE-with-`FFFE`-BOM encoding Windows
+does.** The `iconv` branch is the one that fires on every platform checked; the `else: cat` branch is
+dead code, kept only against a future runner disagreeing. Both stale passages were rewritten to say
+the question was closed rather than left open.
+
+**THE EM-DASH TEST CAUGHT A REAL DEFECT ON THE DAY IT WAS WRITTEN, AND THE PLAN'S OWN PREDICTION WAS
+TOO NARROW.** The plan predicted a byte-counting hook would reject valid headers and blamed `sh`/
+`dash`. The truth was wider: `${#header}` counted **bytes under bash itself**, because this
+environment sets neither `LANG` nor `LC_ALL` at all. The first fix — `export LC_ALL=C.UTF-8` — was
+then found by review to fail **silently** on a machine lacking that locale: `export` exits `0` even
+when the named locale does not exist, so `set -e` never fires, and the hook would have reintroduced
+the identical byte-counting trap one layer down, printing a false rejection that looks exactly like
+the guard working. The hook now carries a behavioural probe — it measures a known one-character,
+three-byte string (an em dash) and refuses to run at all if the count comes back wrong, rather than
+trusting the locale's name. This is the phase's clearest evidence for its own thesis: a rule written
+down (byte-counting is the risk to guard against) was broken by the very commit meant to guard
+against it, on the day that commit was written, and only caught because the guard was executed against
+a real string rather than read as a diff.
+
+**GUARD A'S ADOPTION IS STATED AS UNTESTED AND UNTESTABLE — NOT IMPLIED AS ENFORCED.** The hook does
+nothing on a fresh clone until someone runs `git config core.hooksPath .githooks` by hand.
+`core.hooksPath` happens to be set to `.githooks` in this one clone, which is a fact about this
+clone, not about the repository's contributors in general; `CommitMessageHookTests` proves the
+script behaves correctly when run, not that anyone has wired it in. The design, the implementation
+plan, and `CommitMessageHookTests.cs`'s own class remark all say the same thing, and this entry
+repeats it rather than letting a "complete" phase status imply otherwise.
+
+**Pre-push review PASS** — `docs/pre-push-review-2026-09-12-1359.md`, 0 blockers, one cosmetic
+info-level finding (a workflow comment naming only Windows for an encoding now confirmed identical on
+Linux — not incorrect, no behavioral effect). All ten commit headers (through `305db773`) are under
+the 100-character cap (max 93), no nested parentheses in any commit body, no session URL anywhere. Guard C's central
+claim — a red build naming the failing test — was demonstrated by a deliberate failure on two
+platforms, never by a green run; that verbatim output is quoted in full in the pre-push review report
+and in `task-1-report.md`.
+
+**What is left for next: the operator opens the PR** (explicitly out of scope for this session —
+Task 4's brief says to open it, the operator is doing that afterward) **and merges it.** Nothing else
+is outstanding on this phase.
+
+**Previously, 2026-09-12 — at the merge, as the previous eight were.** 6.2.42 was scoped and
+merged as #570; this entry was written from the session that scoped it, on
+`feat/6242-mechanical-guards`.
+
+**CI WENT RED ON A MARKDOWN-ONLY PR AND THE LOG COULD NOT SAY WHICH TEST FAILED.** #570 changes
+nothing but documentation, and `build-test (ubuntu-latest)` reported
+`Rag.NET.Ingestion.AzureServiceBus.Tests` at **81 passed / 1 failed / 82 total**. Main's run twenty
+minutes earlier reported **82 / 82** on the same runner and tier. Identical totals mean no test was
+added or removed, so the diff could not be the cause. **Re-running the identical commit passed**,
+which settles it as a flake. The suite is the one #246 was filed against — *MessageLockLost on
+ubuntu, emulator race* — and **#246 is closed**, so nothing is currently tracking it.
+
+**6.2.41 REMOVED FAILURE DETAIL FROM CI OUTPUT, AND THIS IS THE FIRST RED BUILD SINCE.** Between
+`Run tests:` and `Failed! - Failed: 1` the job log contains **nothing** — no test name, no assertion,
+no stack trace, and zero GitHub annotations. The MTP migration is the cause and it is not
+ubuntu-specific: reproduced with a throwaway two-test project outside the repository, where a
+deliberate `Assert.Equal` failure produced **zero** console mentions of either the test name or the
+assertion. The detail is written to `<project>_net10.0_x64.log` under
+`bin/Release/net10.0/TestResults/`, which is **never uploaded as an artifact** and dies with the
+runner. The file is **UTF-16LE with a BOM**, so a plain `cat` in a workflow prints garbled spaced-out
+text; `iconv -f UTF-16 -t UTF-8` recovers it cleanly, yielding the `failed <Type>.<Method>` line, the
+assertion, expected/actual, and the stack.
+
+**Why 6.2.41's pre-push review missed it.** That review verified test *counts* were identical before
+and after the migration, which was true and is what it claimed. **Every run in the sweep was green,
+so the failure path was never exercised once.** It checked that passing still worked and never
+checked that failing still reported. A migration changes both paths; verifying one is half a
+verification. **This is the same family as the three rules below** — the check that was run was the
+one with a command attached, and the one that mattered had never been written down at all.
+
+**Not yet filed, pending the operator's call:** the diagnosability regression, whose fix is a few
+lines in `ci.yml` and `nightly.yml` dumping the log through `iconv` when a project fails, and the
+#246 recurrence. A fresh issue is the honest form for the latter — reopening #246 would assert it was
+the same test, which is precisely what can no longer be proven.
+
+**Previously, 2026-09-12 — at the merge, as the previous seven were.** 6.2.41 merged as #567;
+this entry was written from the session that built it, on `chore/6241-merged`.
+
+**THE PHASE'S PREMISE WAS FALSE AND TESTING IS WHAT SHOWED IT.** 6.2.41 existed to unblock #314.
+It does not: `TestingPlatformDotnetTestSupport` opts into the VSTest *bridge*, and MTP 2.3.3 removed
+the bridge. The bump built clean and then ran **nothing** — 77 of 77 projects, no test output. On SDK
+10.0.401 neither `global.json` runner value works; `"MicrosoftTestingPlatform"` is rejected by the
+SDK's own CLI parser. **#314 is blocked on SDK support, not on this repository**, and the diagnosis
+posted there earlier — which said the opposite — was corrected on the PR rather than left standing.
+The migration shipped anyway, on its own merits, after re-asking because the justification had
+changed.
+
+**THE BEIR CACHE WAS PROVISIONED AND I DID NOT SOURCE `env.sh`. THIRD TIME.** This file already
+carried the note — *"source its env.sh BEFORE writing 'unprovisioned' anywhere; two sessions have now
+called it missing when it was there"* — and it happened again. Sourcing it took
+`Embeddings.Onnx.Tests` from **10 skips to 0**. Consequence for 6.2.41: both sweeps ran unprovisioned,
+so the before/after comparison is sound (same state twice) but **~118 of the benchmark project's 267
+tests never executed under either runner**. Verification is project-granular, not test-granular, and
+CI will not close that gap because CI runs unprovisioned too. **Closed the same day by re-running that
+project provisioned under MTP: 175 passed / 92 skipped / 0 failed, against 149/118 unprovisioned —
+26 more tests executed, all passing.** The residual 92 are budget-, secret- or capability-gated.
+
+**Three rules were recorded in this file and then broken by the session that recorded them**, which
+is the thing worth carrying forward more than any individual finding:
+
+1. *Enumerate suites, do not reason about which are safe to skip* — then 6.2.40 asserted a test
+   project did not exist.
+2. *Commitlint caps headers at 100 and lints every commit a PR adds* — then a 104-character header
+   failed CI on #567, on a commit that was not the tip.
+3. *Source `env.sh` before writing "unprovisioned"* — then both 6.2.41 sweeps ran unprovisioned.
+
+**The pattern is not missing rules. It is that prose rules are not checked at the moment they
+apply.** What worked in 6.2.41 was the count-keyed comparison and the `git diff` constraint check —
+both mechanical. What failed was everything expressed as advice. Prefer a command or a guard over a
+sentence.
+
+**Milestone 6 is back to two remaining phases, both account-blocked** — 6.1 and 6.3. **Locally
+finishable:** #184 (breaking, pre-1.0 is the moment), #559 and #560 from 6.2.40, the ~118 unverified
+benchmark tests above, and AI.Sentinel #205 in the other repository. **#314 stays open**, correctly
+attributed; worth muting if it will keep failing, since a permanently red dependency PR is what
+started this.
+
+**Previously, 2026-09-12 — at the merge, as the previous six were.** 6.2.40 merged as #561 at
+20:23 on 2026-09-11; this entry was written from the session that built it, on `chore/6240-merged`.
+
+**THE SAME MISTAKE TWICE IN ONE WEEK, AND WRITING THE RULE DOWN DID NOT PREVENT THE SECOND.**
+6.2.39's plan reasoned that a markdown-only change could affect no other suite and skipped
+`pack-validate`; CI caught it. 6.2.40's plan then asserted "`Rag.NET.Security` has no test project of
+its own" — it has 16 files and 104 tests — **two paragraphs below its own constraint saying to
+enumerate suites rather than reason about which are safe to skip.**
+
+**The lesson is not "write the constraint down".** It was written down, in the same document, and
+restated in the Global Constraints. It still failed. The operative difference in 6.2.40 was that
+`pack-validate` *was* run locally, because that step had a command attached to it rather than a
+principle. **A constraint expressed as a rule gets reasoned around; the same constraint expressed as
+a command in a task step gets executed.** Future plans should list the suites to run as literal
+commands, never as "the affected suites".
+
+**Two findings came from reading implementations rather than method names**, which is now three
+phases running that this discipline has paid out. `TrustLevelRetrievalGuard` treats absent
+`trust_level` metadata as `internal`, a second fail-open default the posture had not mentioned; and
+query sanitisation does not apply to `RetrieveAsync`, which is defensible but recorded nowhere — no
+doc comment, no test, no page. Documented and filed as **#559**, not changed, because a behaviour
+change does not belong in a PR reviewed as documentation. **#560** filed for the other 52 ✅ Done
+entries in `features.md`, one of which turned out to be a design proposal marked Done.
+
+**Milestone 6 is back to two remaining phases, both account-blocked** — 6.1 and 6.3. **Locally
+finishable and still open:** #184 (breaking, pre-1.0 is the moment), #314 (xunit v4, red since
+2026-08-18), #559 and #560 from this phase, and AI.Sentinel #205 in the other repository.
+
+**Eight stale local branches are being kept deliberately** — the operator declined deletion on
+2026-09-11 after all eight were verified present on `main` by content. Do not re-propose it.
+
+**Previously, 2026-09-11 — at the merge, as the previous five were.** 6.2.39 merged as #556;
+this entry was written from the session that built it, on `chore/6239-merged`.
+
+**THE LESSON FROM 6.2.39 IS ABOUT CHOOSING A TEST SET, AND IT WILL RECUR.** The plan ran
+`RepoConventions` plus the docs build, reasoning that a markdown-only change affects no other suite.
+`pack-validate` failed on the PR: `DocsCodeExamplesTests` requires every C# example on a published
+page to resolve against what the produced packages actually ship. **"No `src/` change" is not "no
+suite affected"** — this repository validates its *documentation against its packages*, so a
+docs-only change is precisely the kind that breaks packaging validation. The repository's own note
+that `dotnet build` cannot reach the `pack-validate` guards was already on file and was not applied.
+**The rule to carry: enumerate the suites, do not reason about which ones could not possibly be
+affected.** That reasoning has now failed twice this week in different directions.
+
+**Two phases in a row have found their own design or plan wrong before shipping**, which is the
+process working rather than a run of bad luck: 6.2.38's design claimed documentation guards covered
+`docs/guide/` and nothing did; 6.2.39's plan predicted an error message would strand a reader when it
+in fact names the fix imperatively. Both corrections are struck through in place rather than
+rewritten away.
+
+**AI.Sentinel #205 filed** — `AddAISentinel` is not idempotent, and that package's own README
+named-pipeline example builds a detection pipeline holding 165 detectors instead of 55. Found while
+testing whether it composes with Rag.NET at the `IChatClient` boundary; the composition itself works
+and is now documented. **The first report of this was wrong** and blamed a call of mine; the issue and
+the PR body were both corrected to the real cause rather than left standing.
+
+**Milestone 6 is back to two remaining phases, both account-blocked** — 6.1 and 6.3. **What is still
+locally finishable is unchanged and is not nothing**: #552 (the security guide omits prompt-injection
+defences, the risk `features.md` calls primary), #184 (breaking, pre-1.0 is the moment), #314 (xunit
+v4, red since 2026-08-18), and nine stale local branches. That list came from this file's own
+*"what is actually open"* section, which a session two days ago claimed was empty without reading it.
+
+**Previously, 2026-09-11 — at the merge, as the previous four were.** 6.2.38 merged as #553
+and this entry was written from the session that built it, on `chore/6238-merged`. A follow-up #554
+carried one line that phase's own `git add` missed: the posture's link to #552 was edited and never
+staged, because the commit named directories instead of the files actually changed. The PR body
+claimed the link was there. **Found by reading `git status`, not by anything systematic**, and worth
+recording because staging by directory will do it again.
+
+**6.2.38 produced 6.2.39 by making an omission visible, which is the posture earning its keep.**
+Writing down what the library defends showed that **all four of its security points act before the
+model is called** and nothing acts after — `IConfidenceScorer` scores groundedness, not whether a
+response leaked a credential the model saw in a chunk. 6.2.39 documents the `IChatClient`
+composition that covers it, taking on no code and no dependency.
+
+**AI.Sentinel was assessed on its merits and the version skew was measured rather than assumed.** It
+is the operator's own package; a throwaway spike forcing this repository's pins against it — two
+majors apart on `ZeroAlloc.Mediator` and `ValueObjects` — showed 55 detectors resolve and construct
+and a scan runs clean of `MissingMethodException`. **The spike also found a blatant injection
+scanning clean in a bare configuration**, almost certainly a missing `EmbeddingGenerator`; reported
+to its author rather than chased, and the reason 6.2.39 will tell readers to verify detection
+against their own configuration.
+
+**Previously, 2026-09-10 — four times in one day, all four at the merge, and that one
+corrected the entry before it.** 6.2.37 merged as #549 at 20:16 and this entry was written from the
+session that built it, on `chore/6237-merged` cut immediately after. The mechanism holds.
+
+**THE PREVIOUS ENTRY WAS WRONG, AND THE LIST THAT CONTRADICTS IT IS IN THIS FILE.** It said 6.2.36
+left "every locally-finishable item in this milestone done" and that "the next action belongs to the
+operator rather than to a session". Both were false when written. The section headed *"What is
+actually open, in the order worth taking it"* — further down this same document — names three items
+that are local, unblocked and unscheduled, and it was not read. **The failure was not the claim, it
+was the reading**: a 120 KB state file was opened at the top handoff and at the structured sections,
+and a list two-thirds of the way down was never reached. Recorded here rather than quietly fixed,
+because the same shape will recur on the next long file.
+
+**What that list actually names, re-verified 2026-09-10 after 6.2.37:**
+
+1. **The security-position document.** `docs/guide/security.md` documents security *features* — RBAC,
+   PII redaction, audit log. Nothing states the project's **posture**: threat model, what is in and
+   out of scope, the dependency position. **And there is no `SECURITY.md`**, so 71 published NuGet
+   packages have no vulnerability-disclosure path. Fully local. Scoped as 6.2.38.
+2. **#184** — the fluent bootstrapping entry point. Breaking, and pre-1.0 is the moment for it.
+   Appears in neither ROADMAP nor MILESTONE, which is a record-then-schedule violation of its own.
+3. **#314** — the xunit-dotnet v4 major bump. Three build legs plus `pack-validate` red since
+   2026-08-18, rebased and still red.
+
+**The five Dependabot alerts remain correctly triaged and mostly unfixable**, re-confirmed against
+the API 2026-09-10: `image-size` and `nltk` (both high) have no patch and live in the Docusaurus
+build and the Python comparison harness; `qs` (medium) is patched at 6.16.0 and enters via
+`webpack-dev-server`, reaching only `npm start`. **None is in a shipped NuGet package's closure.**
+The one fixable entry has been a one-line `overrides` fix since 2026-09-07 and is folded into 6.2.38
+rather than left as a fourth open item.
+
+**Previously, 2026-09-10 — three times in one day, all three at the merge, and that entry
+overstated what was left.** 6.2.36 merged as #545 at 17:55 and this entry was written
+from the same session that built it, on `chore/6236-merged` cut immediately after. The mechanism is
+unchanged and is still the only thing carrying it — the session that built the phase records the
+merge as its next action, so no window opens. **Three is a pattern where two was not**, and the
+thing to notice is that no session yet has had to *discover* a stale entry since the mechanism
+started. The two previous entries follow below unchanged.
+
+**With 6.2.36 closed, every locally-finishable item in Milestone 6 is done.** What remains — 6.1
+Recorded Responses and 6.3 Release v1.0 — is blocked on accounts, not on effort, and has been since
+2026-08-20. **That is a different kind of state than this file has held before**: there is no next
+phase to start, and the next action belongs to the operator rather than to a session. The honest
+next step is a decision (acquire the accounts, record the cassettes, or revisit the 2026-08-20 call
+that keeps 6.1 gating the tag), not a plan.
+
+**The one thing 6.2.36 leaves open, and it is not blocked:** #544. `ResilientVectorStore` still does
+not implement `IHybridSearchable`, so registering `Rag.NET.Resilience` disables native hybrid
+dispatch entirely — and now that the ranker lives on that path, it silently disables semantic ranking
+too. 6.2.36 shipped a warning for it and no fix, deliberately. **It is fully finishable locally** and
+is the only such item left; it has no phase number, which by this repository's record-then-schedule
+rule means it should get one before it is worked.
+
+**Previously, 2026-09-10 — twice in one day, both at the merge.** 6.2.35 merged as #540 at
 13:04 and this entry was written from the same session, as was 6.2.34's before it. **Two is not a
 habit**, and the mechanism is still the only thing carrying it: the session that built the phase
 records the merge as its next action, so no window opens. The first such entry, written this morning,
@@ -655,8 +1216,10 @@ reasoning, not as a next step.** What is actually open, in the order worth takin
    what remains is the near-duplicate characterisation the issue also describes. Smallest
    well-understood item.
 2. ~~**#475**~~ — **closed 2026-09-07 in 6.2.18 (#494).** Filed while fixing #338, not yet scoped.
-3. **The security-position document.** #198 shipped the authenticated MCP transport, but nothing
-   states the project's posture in prose. **Related, and it corrects an alarm rather than raising
+3. **The security-position document.** **Scoped as Phase 6.2.38 on 2026-09-10** — this entry sat
+   here unscheduled from 2026-09-07 until then, which is the record-then-schedule rule failing
+   quietly: it was recorded, and then nobody put it in a phase. #198 shipped the authenticated MCP
+   transport, but nothing states the project's posture in prose. **Related, and it corrects an alarm rather than raising
    one:** the five Dependabot alerts on `main` were triaged 2026-09-07 and **none reach the shipped
    NuGet packages.** `image-size` and `nltk` (both high) have **no patch** and live in the Docusaurus
    build and the Python comparison harness; `qs` (medium, patched at 6.16.0) enters via

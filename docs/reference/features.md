@@ -105,7 +105,7 @@ Language-specific separator hierarchies for Python, JS/TS, Java, Go, Ruby, Rust,
 
 **Why:** Generic character splitting ignores code structure. Heuristic splitters work for all languages without per-language compiler dependencies.
 
-**Status:** ✅ Done
+**Status:** ✅ Done — `CodeChunkingStrategy`, registered with `UseCodeChunking`.
 
 ---
 
@@ -361,7 +361,7 @@ Process chunks sequentially: generate an initial answer from the first chunk, th
 
 **Why:** Handles context-window overflow gracefully with a different trade-off profile than map-reduce.
 
-**Status:** ✅ Done
+**Status:** ✅ Done — `RefineAnswerEngine`, registered with `UseRefineAnswerEngine`.
 **Exercised by:** benchmark — the `refine` arm of `BeirGraphRagAnswerTests` over MultiHop-RAG's 2,556 gold answers, pinned at **−0.1055 against the `chatengine` control** in `MultiHopRagAnswerReproduction`, `p<0.0001` — significantly worse than a single call on this corpus. **Read with its caveat, which is a live question rather than a hedge:** the deficit may be partly structural rather than mechanism, and MapReduce has since shown that a per-chunk shape can hide a defect worth 0.46 (#430). Refine rewrites sequentially over chunks — the same per-chunk shape — and has not been re-examined since that fix. Measured 2026-08-30 (Phase 6.2.1).
 
 ---
@@ -451,7 +451,7 @@ await pipeline.IngestFromProviderAsync(provider, source, metadata, options);
 ---
 
 ### Recursive Web Crawler
-**Status:** ✅ Done
+**Status:** ✅ Done — `WebCrawlerDataProvider`, with depth bounded by `WebCrawlerOptions.MaxDepth`.
 **Package:** `Rag.NET.DataProviders.Web`
 
 Fetch a seed URL and follow links up to a configurable depth, loading all discovered pages as documents.
@@ -476,7 +476,7 @@ partitioned by something unrelated to the URLs inside it.
 ---
 
 ### RSS Feed Loader
-**Status:** ✅ Done
+**Status:** ✅ Done — `RssDataProvider`.
 **Package:** `Rag.NET.DataProviders.Web`
 
 Ingest documents from RSS/Atom feeds, enabling near-real-time ingestion of news, blog posts, and update streams.
@@ -587,7 +587,7 @@ Ingest issues and comments from Linear via the GraphQL API (`POST /graphql`, the
 
 ### Image Description via Vision LLM
 **Package:** `Rag.NET.Parsers.Vision`
-**Status:** ✅ Done
+**Status:** ✅ Done — `ImageChunkingStrategy` and `ImageDescriptionOptions`, registered with `UseImageDescription`.
 
 For image files (PNG, JPG, etc.) and embedded figures in PDFs/DOCX: if OCR yields too little text, call a vision LLM (e.g., GPT-4o) to generate a natural-language description. Inject the description as a chunk adjacent to surrounding document text with position metadata. A context-aware variant passes surrounding paragraph text to ground the description.
 
@@ -597,7 +597,7 @@ For image files (PNG, JPG, etc.) and embedded figures in PDFs/DOCX: if OCR yield
 
 ### Video Description via Vision LLM
 **Package:** `Rag.NET.Parsers.Vision`
-**Status:** ✅ Done
+**Status:** ✅ Done — `VideoChunkingStrategy` and `VideoDescriptionOptions`, registered with `UseVideoDescription`.
 
 Pass video files (MP4, MOV, MKV) to a vision LLM that generates a textual description of the content, stored as chunks for retrieval.
 
@@ -612,7 +612,7 @@ Transcribe WAV, MP3, FLAC, OGG, and other audio files using [Whisper.net](https:
 
 **Why:** Meeting recordings, podcasts, and voice notes are a growing source of enterprise knowledge that text-only pipelines cannot reach.
 
-**Status:** ✅ Done
+**Status:** ✅ Done — `AudioDocumentParser` and `AudioParserOptions`, registered with `AddAudioParser`.
 
 ---
 
@@ -779,21 +779,25 @@ services.AddRagNet(rag => rag
 ## Security
 
 ### Prompt Injection Fortification
+
 **Status:** ✅ Done
 **Package:** `Rag.NET.Security`
 
 
 Defence-in-depth against indirect prompt injection — the primary RAG security risk where attacker-controlled content (documents, images, web pages) contains embedded instructions that hijack the LLM's behaviour at query time.
 
-Mitigation layers to consider:
+Four layers ship, each opt-in and independent. Full documentation, including the two defaults that fail open, is in the [security guide](../guide/security.md#prompt-injection-defences).
 
-- **Chunk-time sanitisation** — strip or flag known injection patterns (role-switch phrases, instruction delimiters) from ingested text and vision-LLM transcriptions before storing
-- **Retrieval-time tagging** — propagate a `trust_level` metadata field (e.g. `internal` / `external` / `untrusted`) set at ingestion; surfaced to the answer engine so it can apply stricter system prompts for low-trust chunks
-- **Prompt hardening at answer time** — inject a system prompt prefix that instructs the model to treat all retrieved content as data, never as instructions; configurable per-pipeline
-- **Post-retrieval content scan** — run a lightweight classifier or regex guard over the ranked chunk set before it enters the answer prompt; flag or drop suspicious chunks
-- **Vision-specific guard** — for vision-LLM transcriptions, pass output through the sanitiser before storing, since image-embedded text is a common injection vector
+| Layer | Registration | Runs |
+|---|---|---|
+| Chunk sanitisation | `UseChunkSanitiser` / `UseLlmChunkSanitiser` | at ingest, before embedding |
+| Query sanitisation | `UseQuerySanitiser` / `UseLlmQuerySanitiser` | before retrieval (`AskAsync` only) |
+| Retrieval guards | `UseRetrievalGuard` / `UseTrustLevelGuard` | on retrieved chunks |
+| Prompt hardening | `UsePromptHardening` | at answer assembly |
 
-**Prior art in codebase:** `Rag.NET.Parsers.Vision` ships an internal `PromptInjectionSanitiser` (regex-based, case-insensitive) that targets role-switch phrases (`"ignore previous instructions"`, `"you are now"`, `"act as"`, `"disregard"`, `"system prompt"`), delimiter injection (`<|system|>`, `[INST]`, `###` blocks), and null-byte/whitespace padding. Matched spans are replaced with `[REDACTED]` and logged via `[LoggerMessage]`. This is the lightweight layer; the full fortification feature should promote this to a public, pipeline-level `IChunkSanitiser` abstraction and add the semantic classifier and retrieval-time trust tagging on top.
+The regex implementations share one case-insensitive pattern with a 1000 ms match timeout, covering role-switch phrases and delimiter injection; matches are replaced with `[REDACTED]` and logged. Each layer also ships an LLM-backed variant for paraphrase, requiring a registered `IChatClient`. Retrieval guards emit a `ragnet.security.guard` activity so a caller can confirm they ran. `UseRbac` registers an `IRetrievalGuard` and composes in the same chain.
+
+**Prior art in codebase:** `Rag.NET.Parsers.Vision` still ships its own internal `PromptInjectionSanitiser` for vision-LLM transcriptions, applied before text is stored — the narrow, parser-local version of the same idea that `Rag.NET.Security` generalised into the pipeline-level `IChunkSanitiser` abstraction above.
 
 **Why:** Vision LLM parsers, web crawlers, and email connectors all ingest content from potentially adversarial sources. Without explicit mitigations, a single malicious document can redirect the model's behaviour for any user whose query retrieves that chunk.
 

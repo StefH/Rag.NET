@@ -1,3 +1,4 @@
+using Rag.NET.Testing;
 using Xunit;
 
 namespace Rag.NET.Embeddings.Onnx.Tests;
@@ -10,6 +11,11 @@ namespace Rag.NET.Embeddings.Onnx.Tests;
 /// </summary>
 public sealed class OnnxEmbeddingGeneratorSmokeTests
 {
+    private static string SkipReason =>
+        "Set RAGNET_ONNX_EMBED_MODEL and RAGNET_ONNX_EMBED_VOCAB to existing model/vocab files " +
+        "to run this test." + BeirProvisioningHint.Describe();
+
+
     [Fact]
     public async Task GenerateAsync_WithARealModel_ReturnsUnitLengthVectorsUnaffectedByBatching()
     {
@@ -18,7 +24,7 @@ public sealed class OnnxEmbeddingGeneratorSmokeTests
         Assert.SkipWhen(
             string.IsNullOrEmpty(modelPath) || !File.Exists(modelPath) ||
             string.IsNullOrEmpty(vocabPath) || !File.Exists(vocabPath),
-            "Set RAGNET_ONNX_EMBED_MODEL and RAGNET_ONNX_EMBED_VOCAB to existing model/vocab files to run this test.");
+            SkipReason);
 
         var ct = TestContext.Current.CancellationToken;
         using var generator = new OnnxEmbeddingGenerator(new OnnxEmbeddingOptions

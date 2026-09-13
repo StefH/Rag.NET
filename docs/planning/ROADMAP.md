@@ -7465,7 +7465,7 @@ held both the weaker pattern and the better one, and this branch had reached for
 four mutation rows were re-run afterwards, because rewriting a catching test invalidates the rows
 that depend on it; all four still caught, same catchers.
 
-### Phase 6.2.36: The Ranker Belongs Where the Text Is [status: pending — added 2026-09-10, #539]
+### Phase 6.2.36: The Ranker Belongs Where the Text Is [status: complete 2026-09-10 in #545 — #539, and the design section that predicted the opposite of its own finding]
 **Surface:** Storage
 **HelpWanted:** no
 **Design:** `docs/plans/2026-09-10-semantic-ranker-hybrid-design.md`
@@ -7598,6 +7598,711 @@ PackageValidation **23**. Whole solution builds clean, 0 warnings, 158 projects 
 removal breaks no consumer in the repository. **Still account-blocked past the guard**, unchanged
 from 6.2.34 and stated rather than glossed: the simulator accepts `queryType=semantic`, returns 200
 and returns no `rerankerScore`, so the throw is testable locally and the ranking itself is not.
+
+### Phase 6.2.37: The Decorator That Hid a Capability [status: complete 2026-09-10 in #549 — #544, and the sweep gap that was the defect's own shape one level up]
+**Surface:** Storage
+**HelpWanted:** no
+**Design:** `docs/plans/2026-09-10-resilient-hybrid-design.md`
+**Plan:** `docs/plans/2026-09-10-resilient-hybrid-implementation.md`
+
+**Goal:** `ResilientVectorStore` stops hiding `IHybridSearchable`, so registering resilience no
+longer silently disables native hybrid dispatch — and, since 6.2.36, semantic ranking with it.
+
+**THE DEFECT IS AS OLD AS THE DECORATOR.** `IHybridSearchable` landed 2026-03-31 and
+`ResilientVectorStore` 2026-08-04; `EnsembleBehavior` injects `IVectorStore` and probes
+`VectorStore is IHybridSearchable`, which is `false` for the decorated instance. So **native hybrid
+dispatch never happens at all under resilience**, for every store that supports it, and has not since
+the day the decorator was written. Until 6.2.36 the cost was a silent downgrade — correct results, an
+extra round trip, client-side RRF instead of the backend's fusion, scores on a scale the caller was
+not told to expect. **6.2.36 raised the stakes**: the ranker now lives on `HybridSearchAsync`, so
+resilience silently disables a feature the caller opted into, and 6.2.36's own refusal cannot catch
+it because that refusal is conditioned on the very probe the decorator falsifies.
+
+**Two measurements narrowed the scope, and both contradicted the obvious framing.**
+`ICollectionManageable` is **never probed on a resolved `IVectorStore`** — nothing in `src/` does
+`is ICollectionManageable`; it is only resolved from DI, where it correctly returns the undecorated
+store. So the decorator dropping it is harmless exactly as its docs claim, and **`IHybridSearchable`
+is the only capability where probe-on-instance collides with decoration**: one interface, not a
+model. And **hybrid and sparse are disjoint today** — Azure AI Search and Weaviate are hybrid and not
+sparse; `InMemoryVectorStore` and the three `*SparseVectorStore` subclasses are sparse and not
+hybrid — so the combinatorial explosion `ResilientVectorStore`'s docs warn about is real in principle
+and empty in practice. Both were read off the interfaces and every implementer, not counted from
+declaration lines, which miss the three sparse subclasses that inherit their base's interfaces.
+
+**Decided: a variant subclass, against the repo's other precedent, and the reason is specific.**
+`ResilientVectorStore` handles its four interfaces two ways — a variant for `ISparseSearchable`, and
+implement-and-delegate-with-a-support-flag for `IChunkLookup` and `IScoreScaleAware`, the latter
+justified by exactly the combinatorial argument this phase declines. A `SupportsNativeHybrid` flag
+would need no new class ever, but it changes the contract of a **public interface other stores
+implement**, and its default would have to be `true` — the opposite polarity to `NativeOnlyCapability`,
+added to the same interface the day before by 6.2.36, whose `null` means *nothing declared*. Two
+adjacent defaulted members with inverted polarity is a trap, and v1.0 is the next milestone. **The
+combinatorial objection is also weaker here than it looks**: it applies to *orthogonal* capabilities,
+and hybrid and sparse are not orthogonal in this pipeline — `SparseArmWouldRun` is one of the four
+conditions that already keeps a sparse-capable store on the client path.
+
+**All three interface members must be forwarded, and that is the part that would be half-done.** Two
+of the three are defaulted, so a variant forwarding only `HybridSearchAsync` compiles, passes the
+probe, and dispatches natively while answering for the backend on the rest. `HybridScoreScale`
+defaulted means the decorator declares a scale on the store's behalf — correct for both current
+implementers by luck. `NativeOnlyCapability` defaulted is the one that bites: **6.2.36's refusal would
+never fire under resilience**, so native dispatch would be restored while the guard on it stayed
+broken. That is #544 reappearing one level in, and the sweep must carry a row for it.
+
+**`Create` will refuse the combination it cannot represent.** A store that is both sparse and hybrid
+fits neither variant — picking either hides the other, which is #544 again — so `Create` throws
+`NotSupportedException` naming the store and both capabilities. A registration-time failure instead
+of a query that quietly does less than asked, which is this milestone's rule applied to its own fix,
+and it costs nothing today because no such store exists.
+
+**Behaviour change, stated rather than discovered:** existing users with resilience and a
+hybrid-capable store will start dispatching natively, through the retry pipeline, on the backend's
+fusion scale. `ResilientVectorStore`'s class doc says native hybrid is "not retried" — that sentence
+described a consequence of the bug as though it were a decision, and gets rewritten.
+
+**6.2.36's `native_hybrid_hidden_by_decorator` warning stays**, though the resilience case stops
+reaching it: it is package-agnostic and catches any future decorator that hides the interface.
+
+**Fully verifiable locally** — the first phase since 6.2.35 with nothing account-blocked. The
+decoration, the probe, the three delegations and the `Create` branch are all exercisable with
+in-process fakes.
+
+**BUILT 2026-09-10. Plan: `docs/plans/2026-09-10-resilient-hybrid-implementation.md`.**
+
+**The mutation sweep found the gap the phase was about, one level up, and the plan predicted it
+wrong.** Row 1 drops `NativeOnlyCapability` forwarding from the new decorator. The plan expected it
+caught by both the resilience unit test and the retrieval-level refusal test; it was caught only by
+the first, and **the second cannot catch it by construction** — that test's forwarding decorator is
+a fake which forwards the member itself and never touches `ResilientHybridVectorStore`. So the
+retrieval suite proved the *contract*, the resilience suite proved the *delegation*, and **nothing
+proved the real decorator satisfied the real contract**: two layers each correct in isolation that
+did not compose, which is exactly what #544 is. Closed with `ResilientHybridDispatchTests`, the only
+place both packages are referenced; row 1 re-run against it is caught at both layers. **Seven rows,
+all caught**, including row 7's control proving 6.2.36's warning did not become dead code.
+
+**`Create` became a switch on the capability *pair* rather than a chain of `is` checks**, because
+the chain is what produced #544 — it answered the first capability it recognised and never asked
+about the second. The tuple has no fifth case, so a future capability forces an edit rather than
+falling through to a branch that drops it.
+
+**One warning from pre-push review, recorded rather than fixed, and it is about this phase's own
+guard.** The `NotSupportedException` for the sparse-and-hybrid pair lives only in `Create`, and
+`ResilientHybridVectorStore`'s constructor is `public` — so direct construction bypasses it. That is
+**consistent with `ResilientSparseVectorStore`**, whose constructor has been public since it was
+written, despite `ResilientVectorStore`'s own doc claiming `Create` "is therefore the only public
+way to obtain this type". The base type's stated invariant was already untrue of its variants;
+closing it means changing an existing type's public surface, which is outside #544. Flagged for the
+operator as a small follow-up rather than matched silently.
+
+**A stale doc example the sweep of docs caught**: `retrieval.md` still named `ResilientVectorStore`
+as a decorator that hides `IHybridSearchable`, which this phase makes false. `FederatedVectorStore`
+remains a correct example and is now the only one.
+
+**Suites:** Resilience 105 → **112**, `Rag.NET.Tests` 1497 → **1499**, Memory **3**, RepoConventions
+**98** (2 pre-existing skips), PackageValidation **23**; whole solution builds clean, 0 warnings.
+`PersistentConversationMemoryScoreScaleTests` calls the rewritten `Create` at three sites and did not
+move. **Pre-push review PASS** — `docs/pre-push-review-2026-09-10-2159.md`.
+
+### Phase 6.2.38: What the Project Claims About Its Own Security [status: complete 2026-09-11 in #553 — and the guard that failed on its first run]
+**Surface:** Docs
+**HelpWanted:** no
+**Design:** `docs/plans/2026-09-11-security-posture-design.md`
+**Plan:** `docs/plans/2026-09-11-security-posture-implementation.md`
+
+**Goal:** state the project's security posture and give 71 published packages a vulnerability
+disclosure path, without changing any security behaviour.
+
+**RECORDED 2026-09-07, SCHEDULED 2026-09-11, AND THE GAP IS THE POINT.** This is item 3 of
+`STATE.md`'s *"What is actually open, in the order worth taking it"* list. It was recorded with its
+origin and then never placed in a phase — **the record-then-schedule rule failing in its quieter
+direction**, where the recording happens and the scheduling does not. It surfaced again only because
+a session claimed no local work remained and was challenged; the list contradicting that claim was
+in the same file the session had already opened, two-thirds of the way down.
+
+**`docs/guide/security.md` documents features, not posture.** 320 lines on RBAC, PII redaction and
+the audit log, with registration snippets — and no answer to "what does this project claim, and what
+does it leave to me". Ten packages carry a security-adjacent remit (`Rag.NET.Security*` ×3,
+`Rag.NET.Mcp*` ×3, `Rag.NET.Api*` ×4) and nothing draws a boundary around them.
+
+**There is no `SECURITY.md`.** 71 packages have been live on nuget.org since 2026-08-11 with no
+private disclosure channel; a researcher with a finding would open a public issue. Reporting will go
+through GitHub private security advisories rather than an email address, so no personal mailbox is
+published on a public repo.
+
+**The sharpest thing the posture has to state is that RBAC fails open.** `security.md` already says
+it — *"Chunks that do not carry the key are world-readable and pass through for every caller"* —
+**in passing, two-thirds of the way into a feature how-to**. The default is correct, because
+retrofitting RBAC onto an existing corpus would otherwise hide every previously-ingested chunk the
+moment the feature is registered. But a consumer who registers RBAC and assumes deny-by-default has
+an exposure and no reason to suspect it. **Documenting the decision, not changing it.**
+
+**The dependency position is most of the value.** Five Dependabot alerts, triaged 2026-09-07 and
+re-verified 2026-09-11: `image-size` ×2 and `nltk` (high) have no patch and live in the Docusaurus
+build and the Python comparison harness; `qs` ×2 (medium) is patched at 6.16.0 and reaches only
+`npm start` via `webpack-dev-server`. **None is in a shipped NuGet package's closure.** A prospective
+user seeing "3 high" on the repository page needs that argument, and its absence reads as neglect.
+**The one fixable entry is folded in** — a `"qs": "^6.16.0"` line in the `overrides` block that
+already pins `serialize-javascript` and `uuid` past their advisories (#177), available since
+2026-09-07 and unspent.
+
+**No security behaviour changes, and that boundary is the phase's main risk.** If writing the posture
+surfaces something that ought to change, it gets **filed, not fixed** — the rule 6.2.36 followed when
+it found #544 and shipped a diagnostic instead. A phase whose remit is "write down what is true" must
+not become one that alters what is true, because that puts a security change into a PR reviewed as a
+documentation change.
+
+**Does not gate v1.0**, and was not treated as though it did when triaged. Scheduled now because a
+v1.0 tag is a poor moment to still be missing it. ~~**Fully verifiable locally** — the repo-conventions
+documentation guards already run against `docs/guide/`.~~
+
+**BUILT 2026-09-11. Plan: `docs/plans/2026-09-11-security-posture-implementation.md`.**
+
+**THE DESIGN'S VERIFIABILITY CLAIM WAS FALSE, AND IT WAS A CLAIM ABOUT TOOLING THAT NOBODY
+CHECKED — INSIDE A DOCUMENT ARGUING FOR CHECKING CLAIMS.** Nothing validates `docs/guide/` markdown:
+`DocumentationQualityTests` parses XML summaries under `Rag.NET.Abstractions`,
+`DocumentedConstraintGuardTests` reads `*Options.cs`, and the only occurrences of `docs/guide` in
+that test project are **two comments**. The posture would have landed with no gate at all. The phase
+added `SecurityDocumentationTests` in response — not to check prose, which no test can, but to pin
+the facts that rot without anyone editing the documents. **It failed on its first run**, catching the
+posture naming eight of the ten security-adjacent packages: the two client packages were referred to
+generically rather than by name. They gained a substantive line as a result — *they hold the API
+key*, and where it comes from is the consuming application's problem.
+
+**Enumerating against the code instead of writing from memory found a whole missing feature family,
+filed as #552.** `Rag.NET.Security`'s description *opens* with "Prompt injection defence-in-depth"
+and the package ships `RegexQuerySanitiser`, `TrustLevelRetrievalGuard`,
+`PromptHardeningAnswerEngineDecorator` and more — and **the page called "Security" never mentions
+any of it**. The detail lives only in `docs/reference/features.md`, which calls indirect prompt
+injection *the primary RAG security risk*. Filed, not fixed, per the phase's own boundary; the
+posture names the family, says plainly it is undocumented here, and links both the reference and the
+issue.
+
+**Two drafted claims about authentication were wrong and were corrected by reading the code.** The
+plan expected to write "the MCP write surface is opt-in, so an unconfigured host is
+unauthenticated". It is not: `MapRagNetMcp` attaches the API-key filter to the same convention
+builder it maps, so *"mapped but unauthenticated is not expressible rather than merely detected"*,
+and it throws outright when the transport was never configured. `Rag.NET.Api` reaches the same end
+by the weaker route its own docs describe — detect-and-throw — but throws on three conditions, not
+one. **The real limitation is different and more useful**: the API key is a shared secret, not an
+identity — every client presenting it is indistinguishable, and there is no revocation short of
+rotating it everywhere. That is what the posture says.
+
+**The `qs` advisory is spent**, pinned at `^6.16.0` in the `overrides` block beside
+`serialize-javascript` and `uuid` (#177's precedent), available since 2026-09-07 and unused until
+now. Verified end to end: `npm ls qs` resolves 6.16.0 on both paths, and `npm run build` succeeds —
+the real risk of a transitive pin being a broken docs site. The other four advisories have no patch
+upstream and are described rather than acted on.
+
+**No security behaviour changed, and that was checked mechanically rather than asserted**:
+`git diff main...HEAD --name-only | grep ^src/` returns nothing. `RepoConventions` 98 → **101**.
+**Pre-push review PASS** — `docs/pre-push-review-2026-09-11-0743.md`, 0 blockers and 0 warnings.
+
+### Phase 6.2.39: The Boundary Rag.NET Does Not Watch [status: complete 2026-09-11 in #556 — and the packaging guard the phase's own test set missed]
+**Surface:** Docs
+**HelpWanted:** no
+**Design:** `docs/plans/2026-09-11-model-boundary-monitoring-design.md`
+**Plan:** `docs/plans/2026-09-11-model-boundary-monitoring-implementation.md`
+
+**Goal:** document the `IChatClient` composition that covers the model boundary, taking on no code
+and no dependency to do it.
+
+**6.2.38's posture made an omission visible.** Rag.NET's security features act at four points and
+**all four are before the model is called** — `IChunkSanitiser` at ingest, `IQuerySanitiser`
+pre-retrieval, `IRetrievalGuard` at retrieval, `PromptHardeningAnswerEngineDecorator` at prompt
+assembly. **Nothing acts after.** The one thing that looks like it does, `IConfidenceScorer`, answers
+a different question: it scores whether a sentence is *supported by the retrieved context* and fails
+open at `1.0`. That is a groundedness signal, not an inspection of the response for a credential or
+PII the model saw in a chunk and repeated. A secret surviving ingest-time redaction can be summarised
+back to a user and **no part of this library looks at that**.
+
+**Documentation, not code, and that boundary is the phase's main risk.** A reader of this roadmap
+could reasonably expect an integration package. There deliberately is none: the composition already
+works because both sides sit on `Microsoft.Extensions.AI.IChatClient`, so nothing needs to change on
+either side. And `SecurityPackageWeightTests` exists because one file once put SQLite and a native
+binary on every `UseRbac` consumer — AI.Sentinel brings **thirteen `ZeroAlloc.*` packages** plus
+`Microsoft.Extensions.AI`, which must never enter `Rag.NET.Security`. An integration package is
+post-1.0 work with its own ID to own.
+
+**The example names AI.Sentinel and discloses that it is by the same author**, decided by the
+operator over three alternatives (name without disclosing, describe generically, document nothing).
+The disclosure costs a sentence and pre-empts a reader who notices the shared authorship and wonders
+whether the section is advertising — **which matters more here than elsewhere**, because it lands
+immediately after a posture section whose entire value is being believed. An undisclosed
+self-recommendation found later would be read backwards onto everything above it.
+
+**The overlap gets stated rather than glossed.** Both do prompt-injection detection by different
+means — Rag.NET's sanitisers and guards before the call, a monitor's detectors at the boundary.
+Running both is defence in depth **or duplicated cost**, depending on configuration. Implying they
+are purely additive would be selling rather than documenting.
+
+**MEASURED, NOT ASSUMED, AND THE SPIKE IS WHY THIS IS SCOPED AT ALL.** AI.Sentinel 2.0.1 targets
+`net8.0`/`net9.0` and builds against `ZeroAlloc.Mediator` 4.1.4 and `ValueObjects` 1.7.1, where this
+repository pins **5.0.1 and 2.0.5** — two major versions apart, with NuGet resolving to the higher.
+A throwaway `net10.0` spike on 2026-09-11 forcing those exact pins showed the container builds,
+`IChatClient` resolves to `SentinelChatClient`, **55 distinct detectors resolve and construct**, and a
+scan runs without `MissingMethodException` or `TypeLoadException`. **What it does not prove is
+recorded too**: it exercised construction and the scan path, not every detector's internals, so the
+documented claim is *"verified to load and run on 2026-09-11 against these versions"* — dated and
+version-named so it expires visibly rather than silently.
+
+**One spike observation that is not this repository's to fix**: a blatant injection scanned clean in
+a bare configuration with all five injection-shaped detectors registered — almost certainly a missing
+`EmbeddingGenerator`, which AI.Sentinel's own quick start sets. It is reported to its author rather
+than chased here, and it is why the section will tell readers to verify detection against their own
+configuration. **Registration that silently protects nothing is this milestone's recurring defect
+shape**, and the advice costs a sentence.
+
+**Fully verifiable locally.** Nothing enters `src/`.
+
+**BUILT 2026-09-11. Plan: `docs/plans/2026-09-11-model-boundary-monitoring-implementation.md`.**
+
+**THE DESIGN UNDERSTATED ITS OWN CENTRAL INSTRUCTION, AND THE PLAN THEN OVERSTATED THE CONSEQUENCE.**
+"Decorate the `IChatClient` before Rag.NET consumes it" is not a stylistic ordering preference: the
+`UseCostBudgeting` and `UseFallbackChain` extensions rewrite the DI descriptor and can only wrap what
+is already registered, which is why `CompositionClaims` exists (#195). The plan's §0 caught that, then
+predicted the resulting error would name cost budgeting "rather than the ordering" and strand the
+reader. **Measured, that prediction is false and the guard is better than the plan credited**: the
+message names the ordering, explains the mechanism, and states the fix as an imperative sentence. It
+is quoted verbatim in the new section.
+
+**Two findings the probe added that neither document anticipated.** The guard fires **only when
+`IRagPipeline` is resolved, not when `IChatClient` is** — the wrong-order container hands back the
+bare monitor quite happily, so a smoke test that resolves only the chat client reports a broken
+composition as healthy. And in the correct order **Rag.NET's decorators wrap around the monitor**
+(`CostTrackingChatClient` → monitor → provider), which is the right nesting and worth stating: the
+monitor sits closest to the model and sees the prompt exactly as sent.
+
+**An earlier run of the probe was itself wrong and is recorded rather than deleted**: it resolved
+`IChatClient` instead of the pipeline, reported "no guard fired", and would have become a documented
+claim that the guard has a hole. The guard's own doc comment says it is checked at pipeline
+resolution; the probe had not read it.
+
+**The section states the overlap and its cost rather than selling.** Prompt injection is covered
+twice by different means, and two LLM-backed passes over every query is a real expense — so the
+section says to decide deliberately rather than enabling both because each page recommends it. The
+authorship disclosure sits in the worked example as a visible blockquote, not a footnote.
+
+**No new tests, deliberately.** The section makes no mechanical claim a test could pin, and 6.2.38's
+`SecurityDocumentationTests` already guards this page's package list and RBAC quote — both unmoved at
+**101**. Adding a test asserting a heading exists would be ceremony. **Nothing entered `src/`**,
+checked with `git diff` rather than asserted.
+
+**THE PHASE'S OWN TEST SET WAS WRONG AND CI CAUGHT IT.** The plan reasoned that a markdown-only
+change affects no other suite and ran `RepoConventions` plus the docs build. **`pack-validate`
+failed on the PR**: `DocsCodeExamplesTests` requires every C# example on a published page to resolve
+against what the produced packages actually ship, and the worked example referenced `AddAISentinel`,
+`UseAISentinel`, `SentinelAction` and `OpenAIChatClient` — none of which this repository ships or
+depends on. **"No `src/` change" is not "no suite affected"**: this repository validates its
+documentation against its packages, so a docs-only change is precisely the kind that breaks packaging
+validation. The repository's own note that `dotnet build` cannot reach the `pack-validate` guards was
+on file and went unapplied.
+
+**Fixed by trimming before widening.** The guard's class doc warns that allowlist growth past a
+handful signals the wrong fix, so the severity mapping — AI.Sentinel's configuration detail rather
+than Rag.NET's ordering lesson — came out of the example first, taking five failures to three. The
+three remaining are allowlisted with the argument that makes them correct rather than tolerated: **a
+produced package resolving `AddAISentinel` would mean the boundary had been crossed, which is exactly
+what the section says is not done.** The allowlist entry and the documentation now assert the same
+fact. `PackageValidation` **23/23** after a clean repack. **Pre-push review PASS** —
+`docs/pre-push-review-2026-09-11-0910.md`, 0 blockers and 0 warnings; it reviews the
+self-recommendation as a risk rather than assuming it benign.
+
+### Phase 6.2.40: The Feature Family Nobody Documented [status: complete 2026-09-11 in #561 — #552, and the two findings it filed rather than fixed]
+**Surface:** Docs
+**HelpWanted:** no
+**Design:** `docs/plans/2026-09-11-prompt-injection-documentation-design.md`
+**Plan:** `docs/plans/2026-09-11-prompt-injection-documentation-implementation.md`
+
+**Goal:** document the prompt-injection defences — in the guide, in the feature reference, and in
+IntelliSense — without changing any behaviour.
+
+**#552 UNDERSTATES ITS OWN SUBJECT.** It says the detail "lives in `docs/reference/features.md`".
+Measured against `RagBuilderExtensions.cs`: **six public registration methods have no published
+documentation anywhere.** `UseQuerySanitiser`, `UseLlmQuerySanitiser`, `UseLlmChunkSanitiser`,
+`UseRetrievalGuard` and `UseTrustLevelGuard` appear on no published page at all; `UsePromptHardening`
+gets one passing mention in `extending.md`. A reader cannot discover that `UseTrustLevelGuard` exists.
+
+**THE REFERENCE PAGE IS A DESIGN PROPOSAL MARKED ✅ DONE.** `features.md`'s "Prompt Injection
+Fortification" is written in future tense — *"mitigation layers **to consider**"*, *"the full
+fortification feature **should** promote this to a public, pipeline-level `IChunkSanitiser`
+abstraction"* — describing a promotion that has since happened. It names none of the shipped methods.
+**`FeatureClaimTests` does not catch it**: that guard asserts only that a ✅ Done section names
+packages existing under `src/`, and `Rag.NET.Security` exists, so the claim passes while the body
+describes unbuilt work.
+
+**AND 6.2.39'S POSTURE SECTION POINTS READERS AT IT**, which is why this phase is obliged to fix that
+rather than merely improve on it. The posture says *"the reference is the place to read"* — sending a
+reader to a proposal. The previous phase documented a gap and introduced a misdirection into the one
+page whose value is being believed. Correcting it is in scope, not a nicety.
+
+**A fourth finding, and the operator widened the phase for it: none of the ten public `Use*` methods
+carries an XML `<summary>`** — not the six, and not `UseRbac` or `UsePiiDetection`, which the guide
+covers well. The file's 26 `///` lines are all on private helpers, and nothing guards this because
+`DocumentationQualityTests` scans `Rag.NET.Abstractions` only. **All ten get documented, not just the
+six**: most people meet these methods by typing `b.Use` and reading what the IDE offers, and
+half-fixing the surface for issue-scope reasons would leave `UseRbac` bare beside its newly
+documented neighbours. This makes the phase a **comment-only `src/` change**, checked rather than
+asserted — whole-solution build at 0 warnings, and `git diff` showing only `///` lines added.
+
+**The most useful thing the new section can say is not in either existing section**: `UseRbac`
+registers an `IRetrievalGuard` (`RbacRetrievalGuard`), so RBAC and the retrieval guards are the same
+extension point — and `IChunkSanitiser` is shared with PII redaction, the same interface and the same
+ordered chain. The family is only comprehensible positionally, so the section leads with the pipeline
+order rather than a feature list.
+
+**`pack-validate` runs locally before the PR this time.** 6.2.39 shipped a PR that failed
+`DocsCodeExamplesTests` after reasoning that a markdown-only change could not break packaging
+validation; this section's examples are Rag.NET's own types and should resolve, which is exactly the
+assumption worth checking rather than trusting.
+
+**Filed, not done:** whether other ✅ Done entries in `features.md` are stale proposals — 53 entries,
+an audit rather than a chore, and possibly a widening of `FeatureClaimTests` to check prose against
+reality, which is a hard problem. Widening `DocumentationQualityTests` past `Rag.NET.Abstractions` was
+considered and rejected for the same reason: it would surface a long tail across packages and turn a
+documentation phase into an unbounded cleanup discovered mid-flight.
+
+**BUILT 2026-09-11. Plan: `docs/plans/2026-09-11-prompt-injection-documentation-implementation.md`.**
+
+**READING THE IMPLEMENTATIONS FOUND TWO THINGS NEITHER THE ISSUE NOR THE DESIGN KNEW.**
+
+**A second fail-open default.** `TrustLevelRetrievalGuard` reads `trust_level` metadata and treats its
+*absence* as `internal` — the most trusted value — so `UseTrustLevelGuard` drops nothing over a corpus
+ingested without trust tagging, silently. Same shape as RBAC's world-readable default, which the
+posture calls "the single most important default on this page", while saying nothing about trust
+levels (`grep -c "trust"` returned **0**) purely because the family was undocumented when it was
+written. The posture's `### RBAC fails open` became **`### Defaults that fail open`** covering both:
+documenting one while the page implied there was only one notable instance would have been a fresh
+inaccuracy introduced by the phase fixing inaccuracies.
+
+**And query sanitisation does not apply to `RetrieveAsync`.** The decorator wraps `AskAsync` and
+`AskStreamingAsync`; `RetrieveAsync` forwards the query unchanged, so a retrieval-only caller gets
+nothing from `UseQuerySanitiser`. **There is a good argument it is correct** — injection hijacks a
+model and that path reaches none — **but nothing records it**: zero doc comments on the file, no test
+covering that method (the suite covers the other three), and no published page mentioning it.
+Documented here and **filed as #559** rather than changed, since a behaviour change does not belong in
+a PR reviewed as documentation.
+
+**The phase's own plan committed the failure its constraints warn about.** It asserted
+"`Rag.NET.Security` has no test project of its own" — false, `tests/Rag.NET.Security.Tests` has 16
+files and **104 tests** — two paragraphs below a constraint saying to enumerate suites rather than
+reason about which are safe to skip. Struck through in the plan and the suite added; it passed at 104
+unchanged.
+
+**`pack-validate` ran locally before the PR this time**, the step 6.2.39 skipped: **23/23**, no
+allowlist entry needed, because the examples name Rag.NET's own shipped types.
+
+**Also filed: #560** — whether other ✅ Done entries in `features.md` are stale proposals.
+`FeatureClaimTests` passed this one because it asserts a Done section *names packages that exist*,
+which is narrower than the claim the section makes. One instance is not a pattern; 52 remain
+unchecked.
+
+**The `src/` change is comment-only and was checked, not asserted**: `git diff` over `src/` contains
+only `///` lines, and the whole-solution build stayed at **0 warnings**. Suites: RepoConventions
+**101**, Security **104**, PackageValidation **23**, `Rag.NET.Tests` **1499** — all at baseline. **Pre-push review
+PASS** — `docs/pre-push-review-2026-09-11-1732.md`, 0 blockers and 0 warnings.
+
+### Phase 6.2.41: The Migration a Dependency Bump Was Hiding [status: complete 2026-09-12 in #567 — the premise was false and the migration shipped anyway]
+**Surface:** Infra
+**HelpWanted:** no
+**Design:** `docs/plans/2026-09-12-mtp-migration-design.md`
+**Plan:** `docs/plans/2026-09-12-mtp-migration-implementation.md`
+
+**Goal:** opt every test project into Microsoft.Testing.Platform, which unblocks the xunit v4 bump and
+changes how contributors run a single test.
+
+**#314 IS NOT A DEPENDENCY BUMP.** A Renovate PR open since 2026-08-18 with three checks red, and all
+three fail for one reason with no xunit API involved: `xunit.v3` 4.0.0 pulls
+`Microsoft.Testing.Platform.MSBuild` 2.3.3, which **on the .NET 10 SDK refuses the VSTest bridge
+outright**. Every test project fails to *build* its VSTest target before a test runs. Renovate can
+never make it green, and the migration is worth doing independent of xunit v4 — the deadline belongs to
+whichever MTP version this repository lands on, and staying on v3 defers rather than avoids it.
+
+**THE FIRST DIAGNOSIS OVERSTATED THE SIZE AND IS CORRECTED HERE.** The comment posted on #314 called
+this a "78-project migration" and a "large phase", and said whether it could proceed incrementally
+"is not obvious from here". Both claims fell to ten more minutes of reading:
+
+- **`tests/Directory.Build.props` is imported by every test project**, so the opt-in is
+  **one property in one shared file**, not 77 `.csproj` edits.
+- **Incremental is not an open question — it is the status quo.**
+  `Rag.NET.Benchmarks.Quality.IntegrationTests` has set `TestingPlatformDotnetTestSupport` since #275,
+  declares `RequiresSecrets` and neither tier marker, and therefore sits in the **fast tier `ci.yml`
+  runs on every pull request**, one project at a time, beside 65 VSTest projects. **Mixed mode has been
+  running for weeks.**
+
+**One detail decides whether the census survives.** That project keeps `Microsoft.NET.Test.Sdk`
+deliberately — its csproj says *"Microsoft.NET.Test.Sdk stays referenced because both workflows
+SELECT"* by it — and `ci.yml`'s partition guard computes its census with
+`grep -l 'Microsoft.NET.Test.Sdk'`. A migration that removed the reference would drop projects out of
+the census **while the guard still passed**, because `all` shrinks alongside `fast` and `docker`.
+Follow the precedent: opt in, keep the reference.
+
+**THE REAL COST LANDS ON DEVELOPERS, NOT CI.** `Directory.Build.targets` (6.2.35, #529) raises
+`error RAGNET0001` when a VSTest filter reaches a project MTP runs, hooked
+`BeforeTargets="InvokeTestingPlatform"` so that it **arms itself for any project adopting MTP later** —
+its comment says so in those words. The moment the property lands, **`dotnet test --filter` becomes an
+error across the whole repository.** That is correct: the filter was previously ignored in silence,
+running every test in the assembly while appearing to narrow. And the guard already emits a
+copy-pasteable replacement naming the native runner and `-class`. **6.2.35 built exactly the right
+guard for a migration nobody had scheduled**, which is this phase's one piece of luck. The phase must
+therefore document the new local workflow rather than merely flip a property — silently changing how
+every contributor runs a single test is this milestone's own defect family, one layer up.
+
+**Unusually well guarded for something this structural**: the partition check catches a project
+falling out of every tier, the assembly-existence pre-check catches a project whose tests silently do
+not run, and `RepoConventions` asserts the tier-marker invariants. **What nothing covers is the
+aggregate** — that the same number of tests ran afterwards as before — so per-project counts get
+recorded before and compared after, and the totals stated here.
+
+**Fully local and unblocked**, unlike 6.1 and 6.3.
+
+**BUILT 2026-09-12. Plan: `docs/plans/2026-09-12-mtp-migration-implementation.md`.**
+
+**THE PHASE'S CENTRAL PREMISE WAS FALSIFIED BY TESTING IT, AND THE GOAL ABOVE IS WRONG.** Migrating
+does **not** unblock #314. `TestingPlatformDotnetTestSupport` opts into the VSTest *bridge*, and MTP
+2.3.3 — which `xunit.v3` 4.0.0 pulls — **removed the bridge**. The property works under xunit v3's
+older MTP and does nothing under v4's. Applied on top of the migration, the bump **built clean** and
+then produced **no test output at all** for 77 of 77 projects, with the same error as before. Both
+`global.json` runner values were then tried on SDK 10.0.401: `"VSTest"` gives the MTP error, and
+`"MicrosoftTestingPlatform"` is **rejected by the SDK's own CLI parser**. So xunit v4 has no working
+`dotnet test` path on this SDK; the blocker is SDK support, not this repository. **Bump reverted, and
+the #314 diagnosis corrected on the PR** — the first comment there was wrong and said so.
+
+**The migration shipped anyway, on its own merits and by the operator's call once the justification
+changed.** In-process MTP avoids the VSTest adapter deadlock that motivated #275, and skip reasons
+become visible — which matters on suites gated behind `RAGNET_*` variables. **Coverage proven rather
+than asserted: 77 projects, 5336 tests, 138 skips, identical per project before and after.** The
+output format changed (`net10.0|x64`, different spacing) and the counts did not — a text-keyed
+comparison would have reported 77 differences; a count-keyed one reported none.
+
+**THE DOCUMENTATION DAMAGE WAS FOUR TIMES LARGER THAN SCOPED, AND MOSTLY PRE-EXISTING.** The phase
+expected to fix a handful of `--filter` commands. Enumerated properly there were **thirteen**, of
+which **eleven target `Benchmarks.Quality.IntegrationTests` and had been broken since #275 made it
+MTP** — verified empirically by reverting the migration and watching a documented command still fail.
+**6.2.35 invalidated eleven documented commands and nobody noticed for a fortnight.** All thirteen
+are now native-runner form. *(The count of "five" came from a truncated grep — the third such error
+in this session.)*
+
+**One capability is genuinely gone and is documented rather than papered over.** Three commands used
+`--filter "DisplayName~X&DisplayName~<dataset>"` to run a single BEIR dataset. Neither `-method`
+wildcards nor the query filter language addresses a theory data row — both run **all** rows — and the
+harness reads no dataset-selecting environment variable. The converted commands say inline that they
+now run every dataset, because for BEIR that is a large cost difference.
+
+**`--filter` is now refused repo-wide** by 6.2.35's `RAGNET0001`, which armed itself exactly as its
+comment promised — no change to the guard was needed. `ci.md`'s section describing the one project
+that refused filters now describes the rule rather than the exception.
+
+**Post-merge, a gap this phase had left was closed rather than filed.** Both sweeps ran with the BEIR
+cache unsourced — the third time this session's own recorded note about `env.sh` went unapplied — so
+~118 of the benchmark project's 267 tests never executed under either runner. The before/after
+comparison stays sound (same state twice), but verification was project-granular for those.
+Re-running that project **provisioned, under MTP: 175 passed / 92 skipped / 0 failed**, against
+149/118 unprovisioned. **26 more tests execute under MTP and all 26 pass.** The residual 92 are gated
+on `RAGNET_BEIR_LONG_RUNS`, API keys, or capability probes, and CI will not close those because CI
+runs unprovisioned too.
+
+**Nothing entered `src/`**, checked by `git diff`. Build 0 warnings, RepoConventions **101**,
+PackageValidation **23**, docs site builds. **Pre-push review PASS** —
+`docs/pre-push-review-2026-09-12-0914.md`.
+
+### Phase 6.2.42: Two Rules That Were Written Down and Broken Anyway [status: complete 2026-09-12 — three guards built, tested, pre-push reviewed, and MERGED as #572]
+**Surface:** Infra
+**HelpWanted:** no
+**Design:** `docs/plans/2026-09-12-mechanical-guards-design.md`
+**Plan:** `docs/plans/2026-09-12-mechanical-guards-implementation.md`
+
+**Goal:** convert two prose rules this repository wrote down and then broke into checks that fire by
+themselves, and restore CI's ability to name the test that failed.
+
+**DONE 2026-09-12: all three guards shipped, each proven by execution rather than by reading the
+diff.** `CommitMessageHookTests` runs the real `.githooks/commit-msg` script via `Process.Start` and
+asserts what it accepts and rejects — it does not grep the script for "100". `SkipMessageTests`
+asserts the exact sentence `BeirDatasetCache.DescribeUnreferencedConventionalCache` produces for both
+the "source env.sh" and "set the variable" branches, deterministically, under temporary directories.
+`CiFailureReportingTests` pins the dump into all four workflow loops and counts `iconv` occurrences
+against `dotnet test` occurrences so a regression to bare `cat` in any one loop fails the count.
+**The Linux encoding question this phase's own design left open is now closed by evidence, not
+assumption:** both the implementer and an independent re-reviewer built the same
+deliberately-failing throwaway project inside a fresh `mcr.microsoft.com/dotnet/sdk:10.0` container,
+with no reused Windows build output, and read the identical `FF FE` UTF-16LE BOM there that Windows
+produces. The `iconv` branch fires unconditionally on every platform checked; the `else: cat` branch
+is dead code kept only against a future runner disagreeing. The implementation plan's stale "Linux
+is unverified" caveat was corrected to say so — the design document's own prose never made that
+claim, so only the implementation plan needed correcting. **Guard A's adoption remains exactly what the design
+said it would be — untested and untestable by anything automated**: the hook does nothing on a fresh
+clone until `git config core.hooksPath .githooks` is run by hand; `core.hooksPath` happens to be set
+in this clone, which is a fact about this one clone, not about the repository's contributors.
+**Guard B's provisioned numbers, measured fresh this session:** `Embeddings.Onnx.Tests` unprovisioned
+141 passed / 10 skipped, provisioned **151 passed / 0 skipped**; the benchmark project unprovisioned
+154 passed / 118 skipped, provisioned **180 passed / 92 skipped** — the same 26-test gap Guard B
+exists to make visible, reproduced independently of the number that motivated the design. Suites at
+baseline or above: RepoConventions 107/2 (was 101/2 before this phase's six new tests), `Rag.NET.Tests`
+1499, PackageValidation 23, build 0 warnings, docs site builds. **Pre-push review PASS** —
+`docs/pre-push-review-2026-09-12-1359.md`, 0 blockers, 1 cosmetic info-level finding. Not run here,
+correctly: `Rag.NET.E2ETests`, which is `RequiresLlm`-gated and nightly-only.
+
+**AMENDED 2026-09-12, after a final whole-branch review found ten findings, all fixed on this
+branch.** The cosmetic finding the pre-push review above already carried (the workflow comment
+naming only Windows) is one of the ten; the review also found that none of Guard B's three
+"present but unreferenced" hint sites was covered by anything that would notice the hint call being
+deleted, on any CI runner — closed with a new `RepoConventions` source-text guard,
+`SkipReasonWiringTests`, rather than a runtime check, because a runtime composition test cannot
+observe the difference between "called and returned empty" and "never called" when the live hint is
+empty, which it is on every machine without `~/.cache/ragnet-beir`. **RepoConventions is now 111/2**
+(+4, the new guard's four cases); `Embeddings.Onnx.Tests` and
+`Rag.NET.Benchmarks.Quality.IntegrationTests` are unchanged at 141/10 unprovisioned / 151/0
+provisioned and 154/118 unprovisioned / 180/92 provisioned respectively; build stays 0 warnings.
+Full account in
+`.superpowers/sdd/2026-09-12-mechanical-guards-implementation/final-fix-report.md`.
+
+**AMENDED 2026-09-12, after the scoping PR merged.** A third guard was added the following morning —
+see §3 of the design and #571. It is a regression this milestone introduced rather than an old
+habit, and by the phase's own standard it is the strongest of the three.
+
+**NOT FROM AN ISSUE — FROM THIS REPOSITORY BREAKING ITS OWN RECORDED RULES THREE TIMES IN A DAY.**
+`STATE.md`'s 2026-09-12 entry lists them: *enumerate suites rather than reasoning about which are
+safe to skip* (6.2.40's plan then asserted a test project did not exist — it has 104 tests);
+*commitlint caps headers at 100 and lints every commit a PR adds* (a 104-character header then failed
+CI on #567, on a commit that was not the tip, forcing a branch rebuild); and *source `env.sh` before
+writing "unprovisioned"* (both 6.2.41 sweeps then ran unprovisioned, skipping 26 tests that would
+have passed — the third occurrence, after a note that already said two sessions had done it).
+
+**The pattern is not that the rules were missing.** Each was written, in a file its author had read,
+twice in the same document. **Prose rules are not checked at the moment they apply.** What worked in
+6.2.41 was mechanical — a count-keyed comparison that caught what a text-keyed one would have
+reported as 77 false differences, and `git diff … | grep ^src/` proving a constraint three paragraphs
+of intent could not.
+
+**Guard A: commit header length.** There is **no local commit-message check of any kind** — no
+`.husky`, no `prepare` script, no `commit-msg` hook, `core.hooksPath` at its default. `commitlint`
+runs in CI only. So the loop for a malformed header is commit, push, open a PR, wait, rewrite
+history, force-push. **Header length only, deliberately** — `.commitlintrc.yml` tunes `type-enum`,
+disables `subject-case` and turns `body-max-line-length` off because bodies quote URLs verbatim, and
+a second implementation of that would drift. CI stays authoritative.
+
+**Delivered as a tracked `.githooks/commit-msg` plus a one-time `git config core.hooksPath
+.githooks`**, chosen by the operator over husky-via-`npm prepare` (which would put npm lifecycle
+machinery in a `package.json` that exists only to build the docs site) and over a `RepoConventions`
+test (which fires after the commit exists, so the remedy is still a rewrite). **The cost is stated
+rather than glossed: a hook does nothing until someone runs the config line.** It helps contributors
+who opt in and nobody else, including a future session on a fresh clone.
+
+**Guard B: the BEIR provisioning message.** The skip is correct; the *message* cannot distinguish
+"the corpus is not on this machine" from "the corpus is here and nothing points at it". The second is
+what happened three times — `~/.cache/ragnet-beir` exists with an `env.sh`, and sourcing it takes
+`Embeddings.Onnx.Tests` from 10 skips to **0** and the benchmark project from 149/118 to **175 passed
+/ 92 skipped**. When the variable is unset and the conventional directory exists, the skip will say
+so. **No test changes which conditions it skips under** — only the wording, and only on the branch
+where the data is present but unreferenced.
+
+**Guard C: CI cannot say which test failed.** Added after scoping, from #571. **Phase 6.2.41's
+Microsoft.Testing.Platform migration removed failure detail from CI output** — between `Run tests:`
+and `Failed! - Failed: 1` a job log now carries no test name, no assertion, no stack trace and no
+annotations. On #570 that turned a one-line flake into a full log read, a count comparison against
+`main`, and a reproduction outside the repository, and **the failing test still could not be named.**
+Not ubuntu-specific and not CI-specific: reproduced with a throwaway two-test project where a
+deliberate `Assert.Equal` failure produced zero console mentions of the test or the assertion. The
+detail is written to a per-project log under `TestResults/` that no workflow uploads, so it dies with
+the runner — **and it is UTF-16LE with a BOM**, so a plain `cat` prints unreadable spaced-out text
+while `iconv -f UTF-16 -t UTF-8` recovers it. The fix is a few lines inside the failure branch
+`ci.yml` and `nightly.yml` already have. **It does not touch the #571 emulator race**; it makes the
+next occurrence legible.
+
+**Guard C outranks Guard A on this phase's own criteria.** Guard A costs one branch rebuild when it
+bites and reaches only contributors who run the `core.hooksPath` line; Guard C costs every red build
+indefinitely and reaches everyone with no opt-in. A phase named for rules that were written down and
+broken anyway should not defer the guard that would have caught the breakage it documents.
+
+**The third rule stays prose, deliberately.** A guard for "enumerate the suites" would have to know
+which suites a change could affect — the judgement the rule exists to discipline — so it would either
+run everything or guess, and a guessing guard is worse than none. Its actionable form is already in
+use: 6.2.41's plan listed its suites as literal commands rather than describing them.
+
+**A guard nobody tests is the thing this phase is about**, so the hook gets a `RepoConventions` test
+feeding it a 101-character header and asserting a non-zero exit. **What cannot be tested is
+adoption** — whether anyone runs the config line — and the record will say so rather than implying
+the rule is now enforced for everyone.
+
+**Guard C must be verified by a deliberate failure, not by a green run.** A log dump is exactly the
+change that reviews well and emits nothing — wrong path, wrong branch of the loop, or readable text
+turned to mojibake. The implementation makes a test fail on purpose and reads the test name back out.
+**A green CI run exercises none of this, which is precisely how 6.2.41 shipped the regression**: its
+sweep verified that passing still worked and never once exercised failing.
+
+### Phase 6.2.43: The Entry Point That Was Already Fluent [status: complete 2026-09-12, merged as #577 — shipped a documentation correction and the test that earned it; the builder methods were scoped out before any code]
+**Surface:** API
+**HelpWanted:** no
+**Design:** `docs/plans/2026-09-12-fluent-entry-design.md`
+
+**Goal:** settle whether the documented registration-order constraint exists, correct the
+documentation accordingly, and record on #184 that the builder is already fluent.
+
+**SCOPE REDUCED 2026-09-12, before any code was written.** The two builder methods are dropped; the
+phase ships the ordering test, the documentation correction and a comment on #184. The operator
+challenged the design as over-engineering and it did not survive: **the methods unify syntax without
+reducing decisions.** The caller still constructs the same client and still knows the same three
+things exist — the verbose part was never the registration but
+`new OpenAIClient(key).GetChatClient(…).AsIChatClient()`, unchanged either way. Against a stated goal
+of "fewest decisions to something working", the decision count was identical and only the punctuation
+moved. **And the cost was real**: a `Microsoft.Extensions.AI` reference on core, and two ways to
+register the same service with a new question attached — *`AddChatClient` or `UseChatClient`?* The
+design had rejected the no-dependency variant partly for laying that trap, then chose an option that
+lays it too. **What survives is the half the design treated as a footnote**, and it needs no API.
+
+**A finding kept although it no longer decides anything.** `AddChatClient` is not a registration
+helper but a **pipeline entry point returning a `ChatClientBuilder`**, and the same assembly carries
+`UseLogging`, `UseOpenTelemetry`, `UseDistributedCache` and `UseFunctionInvocation`. A naive
+`Services.AddSingleton(client)` would have discarded that surface silently. Recorded because the next
+person to propose an entry-point method will need it.
+
+**FROM #184, WHOSE PREMISE HAS DRIFTED.** The issue describes bootstrapping as "knowing which of
+several extension methods to call, across several packages, in the right order" and asks for "one
+builder where everything is configured fluently". **The builder exists and the documented quickstart
+is already fluent** — `services.AddRagNet(rag => rag.UsePgVector(…).AddPdfParser())`, with optional
+packages attaching through `TBuilder where TBuilder : IRagBuilder` returning `TBuilder`. Two of the
+issue's supporting claims no longer hold: **#181 is merged**, so "the bump is happening regardless"
+is gone, and **#161 is closed**.
+
+**A methodological note that changed the scope.** The extension surface was first counted by grep,
+and two reasonable-looking greps returned **42** and **3** for the same quantity, because C#
+signatures wrap across lines. The scope came from reading `IRagBuilder`, `RagBuilder` and
+`ServiceCollectionExtensions` instead. No count in the design is exact and none of the work derives
+from one.
+
+**What actually remains is one seam.** The model and embedder are registered outside the chain, as
+two `Microsoft.Extensions.AI` calls before it. There is no `UseChatClient` or `UseEmbeddingGenerator`
+on `RagBuilder` — checked directly; the seam is absent rather than differently named.
+
+**And the stated reason for the ordering may not exist.** `getting-started.md` says "Register them
+before calling `AddRagNet`", but every consumption found is `sp.GetService` or `sp.GetRequiredService`
+**inside a factory lambda** — resolution time, not registration time. **Recorded as a hypothesis, not
+a finding**: implementation turns it into a test, because a passing test deletes a documentation
+sentence and a failing one reveals a real constraint the new methods must respect.
+
+**Two methods, on the concrete `RagBuilder` rather than on `IRagBuilder`** — the latter is a shipped
+three-member abstraction that external packages are generic over, so adding to it would break
+implementers and buy nothing, since the `configure` callback already hands the caller a `RagBuilder`.
+Both take the `Microsoft.Extensions.AI` abstractions the library already consumes, so nothing new
+enters the dependency closure. **Chaining composes in both directions** and that is tested by
+compilation rather than assumed.
+
+**The risk most likely to fail silently is `AddChatClient`'s own behaviour.** If it wraps the client
+in middleware or telemetry, a naive `Services.AddSingleton(client)` loses it, and a test asserting
+"the client resolves" passes either way. The methods delegate to the real registrations and the check
+compares against what `AddChatClient` produces, not against a bare instance.
+
+**Additive despite #184's `breaking-change` label: every call site that compiles today still
+compiles.** Rejected explicitly rather than overlooked — provider-specific `UseOpenAI(key)`, which
+would give Rag.NET provider-shaped surface it does not own; removing or renaming any existing
+extension; adding members to `IRagBuilder`; and the options-discoverability layer, which the operator
+traded away in favour of "fewest decisions to something working".
+
+**A consequence worth flagging before it surprises the next planner.** #184 is labelled
+`breaking-change` and was the strongest remaining argument for doing breaking work before v1.0 tags.
+**If it closes additively, that argument dissolves**, and Milestone 6's remaining locally-finishable
+work no longer has a deadline attached to the release. The phase comments its findings on #184 —
+including the falsified premises — rather than closing it quietly as though the original scope had
+been delivered.
 
 ### Phase 6.3: Release v1.0 [status: pending — but its first work is DONE and was done before this milestone opened: 71 packages are live on nuget.org at 0.1.0 since 2026-08-11, so the account, the key and every package ID are settled. What remains is the v1.0 tag itself. ~~Now gated on 6.2.3~~ — **that gate cleared 2026-08-21** when #340 merged. What still gates the tag is 6.1's recordings, kept as a gate by the operator's 2026-08-20 decision, and 6.2.1's sweep]
 **Goal:** Tag v1.0, plus whatever release mechanics Phase 4.1's packaging pass leaves to
