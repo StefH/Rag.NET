@@ -1,6 +1,502 @@
 # Session State
 
-**Last updated:** 2026-09-13 — **at the merge.** #575's derived guard merged as #588. Issue work,
+**Last updated:** 2026-09-14 — **#618 and #617 merged. #615 closed: gleaning earns its call.**
+
+**GLEANING WAS MEASURED AND THE DEFAULT STANDS.** #153 priced the second model call per chunk at
+**66.8% of ingestion's input tokens**; nothing had ever measured the other side. Replayed from the
+extraction cache at **no spend** — 60 articles, 2,044 chunks, 4,088 calls, **100% cache hit rate** —
+it adds **20.2% more entities and 35.8% more relationships net of repeats**. Those tokens are
+**bought, not wasted**, which also completes #153's reasoning: `GleaningPasses = 0` saves two-thirds
+of ingestion and costs a third of the graph's relationships.
+
+**THE DEDUPLICATION CHECK MOVED THE ANSWER BY A FIFTH.** `PerformGleaningAsync` appends the gleaned
+lists **without deduplicating**, so a model restating itself scores as an addition — and **18.7% of
+gleaned relationships** name a pair the first pass already returned. The raw lift is +44.0%. **When
+a delta is measured by counting what a second call returns, check how much of it is a repeat.**
+
+**A TEST THAT WAS CONFIDENTLY WRONG, AND THE ASSERTION THAT CAUGHT IT.** The first version rebuilt
+both prompts from `GraphRagOptions` and looked them up directly. It hit **0%** — the cache keys on
+`GraphExtractionPrompt.Render` of the **message list**, which prefixes the role — and printed a
+well-formatted table reading *"gleaning added 0 entities, 0.0% lift"*. **A broken replay and a true
+finding of zero are indistinguishable in the output.** The hit rate is now asserted at 80%, not
+merely printed. Without it the measurement would have argued for deleting a call that earns its keep.
+
+**AND THE FIX EXISTED ALREADY.** `GraphExtractionPlanProbe` drives the real ingestion path through a
+recording `IChatClient`, three directories away, and was found only after guessing once at the
+mismatch. **Look for the existing probe before reconstructing a prompt, a key, or a protocol.**
+
+**RECORDED, NOT FILED: 577 of 2,044 gleaning calls — 28.2% — returned nothing.** A quarter of the
+second calls are pure cost, nothing obviously predicts which, and there is no evidence it is
+predictable. Filing it would be recording a hunch as work. The number is on #615 for whoever next has
+a reason to look.
+
+**Open:** **#283** account-blocked, **#246** reopened and waiting for a second occurrence, and
+Milestone 6's two account-blocked phases. Three Renovate PRs — #585, #579, #562 — are the only
+routine maintenance outstanding.
+
+**Previously, 2026-09-14 — #616 merged. #246 REOPENED: it had been closed as completed for a
+month while still failing.**
+
+**#246 WAS NEVER OPEN TODAY, AND THIS FILE SAID IT WAS — IN FOUR PLACES.** It was closed as
+*completed* on 2026-08-16, **the day it was raised**, by the `PT5M` fix. Its own next comment says
+*"My PT5M fix did not work, and the evidence says it addressed the wrong mechanism."* It stayed
+closed regardless, through a month of failures, and through today's capture on the #605 build. Now
+reopened.
+
+**WHAT KEPT IT CLOSED WAS ONE GREEN RUN.** The 2026-08-17 comment reads *"the next ubuntu run was
+green"*. For a failure that reproduces about once in a dozen runs, **a single green run is the
+expected outcome whether or not anything was fixed** — the same lesson this file already records for
+performance numbers, applied to a flake instead of a benchmark. **Never close an intermittent on one
+passing run.**
+
+**AND CHECK ISSUE STATE BEFORE QUOTING IT.** "#246 is still open" was carried through this session
+and written into this file repeatedly without once being checked. `gh issue view` costs a second.
+
+**Previously, 2026-09-14 — #614 merged. #153 closed on a measurement that overturned its own
+reasoning, and #615 filed on the better question it surfaced.**
+
+**EVERY ISSUE THAT WAS "OPEN AND NOT MINE TO CHOOSE" IS NOW CLOSED** — #184, #175, #153. What
+remains open is #246, #283, #607's successor work in #615, and the two account-blocked phases.
+
+**#153 SAID NO, AND ITS OWN REASON FOR SAYING NO WAS WRONG.** It argued the saving lands on the
+smallest prompt path because "retrieved chunk text dominates". Measured over 400 real chunks and 400
+real extraction payloads with `cl100k_base`: in the **gleaning** prompt the serialised state is
+**196 tokens against the chunk's 114** — the larger half, 50.8%. That claim is true of the **answer**
+prompt and was carried across to a different one. **If TOON is ever revisited, revisit it knowing
+this call site is state-dominated, not text-dominated.**
+
+**THE NUMBERS, AND THE DENOMINATOR THAT MATTERS.** At TOON's own claimed 42.6% the saving is 21.6% of
+the gleaning prompt but only **14.5% of the 578 tokens ingestion spends per chunk**, because
+`GleaningPasses = 1` sends **two** prompts and the first carries no state. Judging against the
+gleaning prompt alone flatters it by half. `GleaningPasses = 0` saves **66.8%** — **4.6x** — for a
+config change. **Not dominance and not presented as such**: dropping gleaning changes what gets
+extracted, while a format change does not.
+
+**WHICH IS #615: GLEANING IS TWO-THIRDS OF INGESTION'S PROMPT TOKENS AND NOBODY HAS MEASURED WHAT IT
+ADDS.** No test or run separates entities found by the initial extraction from those the second call
+adds. The default doubles ingestion spend on an unquantified benefit. **#121 is why that needs care
+rather than a quick check** — this path once produced zero entities for the package's entire life
+without a test failing, and "does the graph still have entities" is exactly the assertion that missed
+it. Most of it is replayable from the extraction cache without new spend.
+
+**MEASURE THE CEILING BEFORE BUILDING THE THING.** The whole of #153 was settled without writing a
+TOON encoder, by asking what fraction of the prompt could even shrink. A throwaway `dotnet run`
+file-based app, the repo's own tokenizer, real corpus and real cache. **Not committed** — the issue
+comment carries everything needed to re-run it.
+
+**Previously, 2026-09-14 — at the merge.** #613 and #612 merged, **#607 closed: the embedding
+cache is re-keyed on the model revision.**
+
+**THE RE-KEY WAS THE OPERATOR'S CALL, AND THE COST TURNED OUT SMALLER THAN THE DECISION IMPLIED.**
+`ModelIdentity` named `all-MiniLM-L6-v2/onnx` — a repository, not an export — so bumping
+`MINILM_REVISION` changed no cache key and every vector the previous export produced read as a hit.
+It now carries the revision, which re-keys all **1,761,084** local entries.
+
+**NOTHING COULD BE MIGRATED IN PLACE, AND THE ON-DISK FORMAT IS WHY.** An entry holds `RAGNETE1`,
+the 32-byte key digest, the dimension and the floats — **never the text**. Computing a new digest
+needs the input, which was never stored. Old entries are **unreachable rather than wrong** and cost
+only disk. **Check the format before quoting a migration cost**: the answer was in a 44-byte header.
+
+**THE BILL IS WHAT YOU NEXT ASK FOR, NOT WHAT YOU DISCARDED.** The cache fills lazily, one text at a
+time. The nightly's two cells cost minutes; a full ablation sweep costs hours **and only if somebody
+sweeps**. `2,653.6 MB` of now-unreachable vectors sits in `~/.cache/ragnet-beir/embeddings`, plus a
+further `1,017 MB` in `embeddings-warmbak` — **~3.6 GB reclaimable by deleting them**, and nothing
+reads either any more.
+
+**`ModelRevisionAgreementTests` KEEPS THE TWO PINS TOGETHER.** It asserts the workflow's
+`MINILM_REVISION` equals `BeirHarness.PinnedModelRevision` **and** that `ModelIdentity` is built from
+that constant — two constants that agree while nothing consumes them is not the property worth
+having. It reads both as **source text rather than through a project reference**, deliberately: the
+constant lives in a `RequiresSecrets` project that runs in the advisory nightly tier, and a guard
+living there would let the pins drift through a merge, which is the failure it exists to catch.
+Three mutations each fail it.
+
+**THE ESCAPING TAX, THIRD INSTANCE IN ONE DAY.** Writing that guard through a bash heredoc collapsed
+a doubled `\\s` down to a single `\s` and mangled every regex in it,
+exactly as recorded twice before. **Write C# containing regexes or quotes with the file
+tool, not through a heredoc** — the workaround of building
+backslashes with `chr(92)` is more fragile than simply not using the shell for it.
+
+**Open and not mine to choose:** **#153** only. **#283** is unblocked as to instructions, blocked as
+to accounts. **#246** has reported once and is still open, waiting for a second occurrence to decide
+between its remaining branches. **Milestone 6 remains two account-blocked phases**, 6.1 and 6.3.
+
+**Previously, 2026-09-14 — at the merge.** #611 merged and **#610 closed: the GraphRAG caches
+are published.** GraphRAG now reproduces with no API key.
+
+**THE BUNDLE.** `graphrag-cache-2026-09-14`, a deliberately non-`v` tag so release-please's namespace
+is untouched and `v0.1.0` stays Latest. 97,640,288 bytes, md5 `b642d577be195a88aaa14ff003b27ca8`,
+verified by **anonymous** download against the local file. `graph-extractions`, `graph-reports`,
+`graph-answers` — 93 MB compressed, 143 MB unpacked. `docs/reference/ci.md` carries the curl and tar
+commands, both **run before being written down**.
+
+**THE PRE-PUBLICATION SCAN IS THE PART TO REMEMBER.** The first build carried
+`AzureAD+<username>` in **466,032 tar headers** — never in any file's content, which was checked
+separately, but stamped into every header by `tar`. It is invisible in a file listing and permanent
+once published. Rebuilt with `--owner=0 --group=0 --numeric-owner` and re-scanned the **artifact**
+rather than trusting the flag. **Scan any artifact before it leaves this machine**, and scan the
+built thing, not the inputs.
+
+**WHAT IS PUBLISHABLE WAS DECIDED PER DATASET, NOT PER CACHE.** MultiHop-RAG is ODC-By 1.0 **by its
+own authors' declaration**; SciFact and ArguAna permit redistribution with attribution; **FiQA** names
+no licence and is non-commercial only; **TREC-COVID**'s CORD-19 agreement permits text and data mining
+only. The three graph caches carry MultiHop-RAG **structurally** — `BeirProtocol.GraphRag` is declared
+by that dataset alone, so nothing else *can* have written there. `hypotheticals`,
+`metadata-extraction` and `self-query` span the forbidden two and are hash-sharded with **no dataset
+separation**, so they cannot be split without re-deriving them. That is now a property of the
+licensing, not an oversight.
+
+**THE MODEL-TERMS GATE WAS TRACED, NOT ASSUMED.** `openai.com` returns **403** to automated fetches,
+so the primary source was the CDN PDF, which uses subset-font encoding and had to be decoded through
+its own `ToUnicode` CMaps. Services Agreement §4.1 assigns Output to the Customer; **no clause
+restricting redistribution or publication of Output exists in the document** — a searched negative.
+The one Output-use restriction is developing competing models. **We are not OpenAI's Customer;
+OpenRouter is**, and §6.1 delegates to the Model Terms — the release notes say so rather than
+implying a cleaner chain than exists.
+
+**TWO 404s, ONE INTERESTING, AND THE FIRST ACCOUNT OF THEM WAS WRONG.** `gh release create` treats
+`file#name` as a **label, not a filename**, so the asset landed as `…-v1.tar.gz` while the notes
+documented the plain name. The resulting 404 was **the correct answer to a wrong question**. Only the
+post-rename 404 was propagation, and a poll returned **302 on its first attempt and all fifteen** —
+so an early claim of a twenty-minute outage was an estimate stated as fact and is corrected on #610.
+**Check the name you are requesting before concluding anything about propagation or permissions.**
+
+**A GREEN COMMAND THAT CHANGED NOTHING.** The correction above nearly failed silently: Windows Python
+cannot open a `/c/...` POSIX path, so the patch threw — while the `gh … --edit-last` in the same
+command **succeeded**, re-posting the unchanged text. Verified afterwards by grepping the live
+comment rather than trusting an exit code.
+
+**Open and not mine to choose:** **#153**, and **#607**'s three options. **#283** is unblocked as to
+instructions, blocked as to accounts. **#246** has reported once and is still open. **Milestone 6
+remains two account-blocked phases**, 6.1 and 6.3.
+
+**Previously, 2026-09-14 — at the merge.** #608 and #606 merged. **#607 filed: the embedding
+cache key cannot tell two models apart.**
+
+**THE NIGHTLY NOW CACHES BOTH HALVES OF `RAGNET_BEIR_CACHE`, AND THE TWO STEPS HOLD OPPOSITE RULES.**
+The corpora must have **no** `restore-keys`; the vectors **must**. That looks like an inconsistency
+waiting to be tidied, so both are asserted. The difference is a property: `EmbeddingCache` addresses
+entries by SHA-256 over model identity and text, so a restored vector is either that text's vector or
+is never looked up. **A stale corpus measures; a stale vector cannot be read by mistake.**
+
+**#607 IS THE REAL FIND, AND IT CAME OUT OF WRITING THE CACHE.** `BeirHarness.ModelIdentity` is the
+only salt on every embedding key, and its comment claimed it carried *everything that changes a
+vector*. It does not carry the model's **revision** — the string names a repository, not an export,
+while `nightly.yml` pins `MINILM_REVISION` and SHA-256-checks it on the stated grounds that a
+silently different model moves the parity number unattributably. **Bump the pin and not one key
+changes.** Adding the cache is what would have made that load-bearing: `restore-keys` would have
+handed a bumped run the old model's vectors as hits.
+
+**CI is covered by the Actions key; a developer machine is not.** The constant was deliberately NOT
+changed — it re-keys every entry and discards every local cache, **1,761,084 entries / 2,653.6 MB**
+measured here. #607 carries three options. **No measurement has ever been taken against a wrong
+model**: the pin has held one value, so this is a latent trap, not a live corruption.
+
+**A GUARD PASSED A MUTATION IT SHOULD HAVE FAILED — THE SECOND TIME IN ONE DAY.** The first version
+asserted `Contains("MINILM_REVISION")` over the whole step, and removing the revision from `key:`
+**passed**, because `restore-keys:` still mentioned it. Assertions are now per line. **A whole-blob
+`Contains` cannot express a per-field requirement**, and a guard that spans two fields with opposite
+rules will pass on either one satisfying it.
+
+**LOCAL CACHE INVENTORY, MEASURED 2026-09-14** — the answer to "can we publish this":
+
+| Group | Files | Size |
+|---|---|---|
+| `embeddings` | 1,761,084 | **2,653.6 MB** |
+| every LLM-generated cache combined | ~493,000 | **~150 MB** |
+| corpora, extracted plus retained zips | 24 | ~395 MB |
+
+**The LLM caches are the ones worth publishing** — `graph-answers`, `graph-extractions`,
+`graph-reports`, `hypotheticals`, `metadata-extraction`, `self-query`. They cost **money**, not time,
+and they are what currently forces an OpenRouter key. 150 MB fits a release asset. **BLOCKED on
+licence**: `BeirDatasetCache` says the corpora are "not ours to redistribute under", and whether
+derived extractions inherit that is a per-dataset question **nobody has traced to primary sources**.
+Do that before any upload.
+
+**Vectors are NOT worth importing**, for three measured reasons: 1.76 M files is minutes of tar on
+both save and restore; 2.6 GB against a 10 GB whole-repo Actions quota; and most of it is ablations
+the nightly never runs. It fills its own now.
+
+**AN E2E FAILURE WHOSE EVIDENCE I DESTROYED MYSELF.** `Rag.NET.E2ETests` failed 1 of 11 cases in a
+full sweep. **The test cannot be named**, because the sweep loop piped every project through
+`grep "Total:"` and discarded the rest, and MTP writes its log only on failure — so the passing
+re-run left no log at all. This is the truncation mistake already recorded twice in this file, made
+*in the harness written to check my own work*, two commits after shipping a guard whose whole purpose
+is preserving exactly that evidence in CI. **A sweep must tee full output.**
+
+**Measured rather than guessed at, after an early estimate of "1 in 3" from three runs:** six local
+runs on 2026-09-14, **one failure — about 1 in 6**. Three dedicated captured runs afterwards all
+passed 11/11. **The failing run was the fastest of the six** — 264.4 s against 288-424 s for the
+passes — which is the same early-bail shape as the nightly's 4.3 s mass failures, and is a signal
+rather than a diagnosis. Both sweeps ran E2E after forty-odd other projects, and only one failed, so
+container contention is a candidate and not a conclusion. **Not filed**: an unnamed, unreproduced
+flake with no captured output is not an actionable issue. The next sweep keeps its output.
+
+**Open and not mine to choose:** **#153**, and **#607**'s three options. Publishing the LLM caches
+waits on the licence trace. **#283** is unblocked as to instructions, blocked as to accounts. **#246**
+has reported once and is still open. **Milestone 6 remains two account-blocked phases**, 6.1 and 6.3.
+
+**Previously, 2026-09-14 — at the merge.** #605 merged, closing #175. **#246 finally
+reported itself**, in CI, on this PR's build.
+
+**#246 IS THE HEADLINE, NOT #175.** The instrumentation added 2026-09-12 and the failure-log dump
+from 6.2.42 both fired on `ubuntu-latest` at 06:40:45Z and produced the evidence this issue has never
+had in four weeks of being open:
+
+| Interval | Value |
+|---|---|
+| Dead-lettered to lock acquired | 104 ms |
+| Lock acquired to `CompleteMessageAsync` | **3.4 ms** |
+| Lock remaining at the attempt | **300.0 s of 300** |
+
+`deliveryCount=1`, `straysHeld=0`, `sequenceNumber=2`. **That rules out four things at once** — expiry
+for the third time and the first from CI, the test holding the lock too long, stray interference, and
+any prior redelivery. Both previous "fixes" raised `LockDuration`; both were aimed at a mechanism the
+evidence now excludes three separate ways.
+
+**AND THE TIMINGS EXPOSED A STRUCTURAL FACT THE CODE COMMENT MISSED.** `ReceiveDeadLetterAsync` is
+not polling. It is called once and blocks in `ReceiveMessageAsync` for up to 60 s **while `sut` is
+still running** — and `sut` is what dead-letters the message. The long-poll is satisfied *by the
+dead-letter transfer itself*, 104 ms after it, so the lock is taken against an entity the broker is
+mid-write on. **That is not recorded as the cause.** It is the third plausible story this bug has
+had and the first two shipped as fixes.
+
+**WHAT WAS PROPOSED IS A MEASUREMENT, NOT A FIX** — on catching `MessageLockLost`, re-receive at
+once and record `sequenceNumber` and `deliveryCount`. Same sequence with `deliveryCount=1` means a
+phantom delivery; `deliveryCount=2` means a real revocation; **nothing coming back means the complete
+landed and only its acknowledgement was lost**, in which case every lock-directed fix has been aimed
+at the wrong thing three times running.
+
+**BOTH EMULATOR CONTAINERS ARE UNPINNED** — `servicebus-emulator:latest` and `azure-sql-edge:latest`,
+and the run log shows both pulled fresh. Diagnosing an intermittent against a moving emulator on a
+moving database is how it stays intermittent. Worth its own change whatever #246 turns out to be.
+
+**#175 WAS ANSWERED AGAINST ITS FRAMING AND IN FAVOUR OF ITS CONCERN.** It asked whether one ungated
+case should go behind `BeirRunBudget`. **Eleven cases** load MultiHop-RAG on the nightly gated only
+on `RAGNET_BEIR_CACHE`, and **three of the ten it did not name shipped in #168 itself**, the PR it was
+filed against. #229 arrived three days later citing the questioned case *by name* as its precedent.
+Gating one of eleven removes no bytes.
+
+**WHAT WAS REAL WAS THAT NOTHING CACHED THE CORPORA AT ALL.** `$RUNNER_TEMP` is fresh per job, so all
+five came down every night. The nightly now caches that directory. Two properties decide whether that
+is safe and `BeirCorpusCacheTests` pins both: **`embeddings` is excluded**, and there are **no
+`restore-keys`** — `BeirDatasetCache` treats a directory holding `corpus.jsonl` and `queries.jsonl` as
+present and never re-verifies it, because the MD5 is checked during a download a cache hit skips. All
+four ways the guard can rot were mutation-checked.
+
+**THE NIGHTLY HAS FAILED 5 OF 26 SCHEDULED RUNS SINCE 2026-08-19, AND THAT IS NOT FILED.** Three are
+same-total, same-skip-count, sub-5-second mass failures of the BEIR project: 09-01 passed 137 in
+16 m 41 s; 09-02 failed 9 in 4.3 s. The logs cannot name the tests. **Deliberately not attributed** —
+guessing is what got #246 misdiagnosed twice. Guard C will name the next one.
+
+**Open and not mine to choose:** **#153** only — #184 and #175 both closed today. **#283** is
+unblocked as to instructions and blocked as to accounts. **Milestone 6 remains two account-blocked
+phases**, 6.1 and 6.3.
+
+**Previously, 2026-09-14 — at the merge.** #603 merged; #283's body edited in place.
+
+**#283 IS STILL BLOCKED, AND NOT BY ANYTHING IN THIS REPOSITORY.** It needs people with ordinary
+accounts on Asana, Notion, Slack and the rest. The operator lacking those is the blocker the issue
+names, and no amount of work here moves it. **What was fixable was that volunteers hit an error at
+step 2**, which is now fixed.
+
+**THREE BROKEN COMMANDS IN THE ISSUE, NOT THE ONE FIRST REPORTED** — the record step, the
+secret-guard check and the replay verification all said `dotnet test --filter`, refused repo-wide
+with `RAGNET0001` since 6.2.41. Each replacement was **verified to select what it claims**, not
+merely to run: 3 tests for the Asana class, 4 for `CassetteSecretTests`. That distinction is the
+point — the old `--filter` *looked* like it selected one test while running the whole assembly, so
+"the command runs" was never evidence.
+
+**The opening line was corrected too.** It promised "no .NET expertise beyond running `dotnet
+test`", which is no longer the shape of the task and would have walked a contributor into the exact
+error the rest of the fix removes.
+
+**THIRD INSTANCE OF THE SAME ENUMERATION FAILURE.** 6.2.41 converted thirteen `--filter` commands
+and enumerated the ones in `docs/reference/ci.md`. Everything outside that file kept its broken
+form: `BeirRunBudget` (#601), `docs/reference/retrieval-quality.md` (#603), and this issue. **The
+rule the phase itself recorded — enumerate the occurrences, do not reason about where they live —
+was applied to a directory rather than to the repository.** Published docs and the issue tracker
+are now clean; the only surviving mentions are the prose explaining the ban.
+
+**A verification habit that failed twice today, both mine:** `git grep` for merged content without
+`-i`, reporting MISSING for text I had written in capitals. Both times the content was on `main`.
+Case-fold the check, or grep a distinctive lowercase fragment.
+
+**Milestone 6 remains two account-blocked phases** — 6.1 and 6.3. **Open and not mine to choose:**
+#184, #175, #153. **#283** is unblocked as to instructions and blocked as to accounts. **#246**
+waits to report itself.
+
+**Previously, 2026-09-14 — at the merge.** #298 closed; #599, #600 and #601 merged.
+
+**A QUESTION ABOUT MULTILINGUAL PROMPTS ENDED IN A MEASURED ANSWER TO A YEAR-OLD ARCHITECTURE
+QUESTION.** The chain: prompts are already per-caller configurable, so the real defect was that one
+prompt's English wording was load-bearing for parsing (#596/#597) — then #299's survey turned out
+already fixed — then #298's re-measurement, never run, finally was.
+
+**#298 IS CLOSED, AND ITS OWN RECOMMENDATION WAS VINDICATED RATHER THAN OVERTURNED.** It argued
+"not yet, and the reason is specific rather than conservative": the pain attributed to SQLite was a
+schema defect, and a new engine benchmarked against a known-wrong schema would be flattered. **Now
+measured.** The traversal term derived at **15-40 minutes** cannot fit inside a local-search pass
+that takes **208.0 s and 202.7 s** over two runs, and the `relationships` table is unchanged at
+147,021 rows — an *indexed* problem, not a smaller one.
+
+**THE NUMBER CARRIES ITS OWN CAVEAT, DELIBERATELY.** The wall-clock drop from 43 m 29 s is mostly
+the embedding cache: both runs report **325,661 hits and zero misses**, where 2026-08-15 recorded
+145,840 hits against **177,566 misses**. None of that drop is claimed for the index. The traversal
+conclusion survives because embedding warmth does not touch SQL scans.
+
+**WHAT CLOSING #298 DOES NOT SETTLE, said on the issue so nobody reads it as settled:**
+concurrency — `SqliteGraphStore` still holds one `SqliteConnection` opened in the constructor and
+registered as a singleton, which #298 itself called the strongest argument — and collapsing two
+databases for Postgres users. Either needs its own issue and its own evidence.
+
+**MEASUREMENT DISCIPLINE, LEARNED EXPENSIVELY IN ONE EVENING.** The first attempt gave **713 s**,
+the second **287 s**, for the identical command — while a Hyper-V VM held all but **3.4 GB** of
+63.7 GB. After the operator stopped it, two runs agreed to **0.8%**. **One run would have produced a
+confident wrong number**; the repo's own `CostReproducibility` rule refuses a figure from a single
+run, and this is why. Conditions are now recorded beside the figure, including the failed attempt.
+
+**AND THE MEASUREMENT NEARLY WENT UNRECORDED TWICE.** The first successful run used a command
+without `-showLiveOutput`, so the test's own figures — including the cache counts that decide
+comparability — were never captured. Then the captured output *was* in the log and a `cut -c1-170`
+hid it. **Truncation cost three separate findings today.**
+
+**#601: THE PRINTED COMMAND DID NOT WORK AND HAD TO BE FIXED TO FOLLOW THE ISSUE.** Every gated
+cell said `dotnet test --filter`, which has raised `RAGNET0001` since 6.2.41. Converting it meant
+moving three guards with it, because the printed string is a guarded artifact — it selected nothing
+once and `vstest` exited 0, recording a pass for a run that never happened. **The new dataset guard
+failed 12 cells on its first run, on my own prose**: it read the whole skip message and tripped on
+the sentence warning readers off `--filter`. Fourth calibration failure this week, first one where
+the thing caught was mine.
+
+**TOOLING NOTE THAT COST THREE PATCHES.** Heredocs here collapse `\` to `\`, so a C# `'\n'`
+literal became a real newline. Build backslashes with `chr(92)` when patching source that contains
+them.
+
+**Milestone 6 remains two account-blocked phases** — 6.1 and 6.3. **Open and not mine to choose:**
+#283, #184, #175, #153. **#246** waits to report itself.
+
+**Previously, 2026-09-13 — at the merge.** #596 fixed and closed in #597; #559 recorded in
+#594.
+
+**A DESIGN QUESTION ABOUT MULTILINGUAL PROMPTS FOUND A CORRECTNESS BUG.** Asked whether the system
+prompts should become configurable per language. **They are already configurable** —
+`RagOptions.SystemPrompt`, `MapPromptTemplate`, `ReducePromptTemplate`, `EntityExtractionPrompt`,
+`SystemPrefix` and the rest all take any language. Per-language variants would choose the language
+*for* the caller and leave the real defect untouched.
+
+**THE REAL DEFECT: one prompt's English wording was load-bearing for parsing.** MapReduce asked the
+model to reply `"not found"` for an irrelevant excerpt, then filtered on that exact phrase. A
+non-English system prompt yields `nicht gefunden`, the match fails, and **the excerpt is treated as
+relevant** — its I-found-nothing sentence flowing into the reduce step as source material, silently.
+
+**IT HAD ALREADY COST A CORRECT ANSWER, IN ENGLISH.** The repository held a measured transcript from
+2026-08-30 on an existing test: real maps returned `Not found. The answer to the question is "not
+found".` under a caller formatting instruction; three refusals reached the reduce, which called it a
+contradiction and **discarded the answer it had**. That earlier fix appended the protocol last,
+making the failure less likely while leaving the exact match in place.
+
+**THE FIX:** a symbolic `<NOT_FOUND>` token, recognised with `Contains` rather than equality — which
+is what makes the 2026-08-30 shape *survivable* rather than merely unlikely. `FlareAnswerEngine` had
+always used a symbolic token for the same reason; the two engines now agree. **The legacy phrase is
+still recognised**, because a caller with a custom `MapPromptTemplate` saying "not found" would
+otherwise break in exactly the silent way the change removes.
+
+**THE TRANSCRIPT WAS KEPT WHEN THE TEST WAS UPDATED.** Changing the sentinel meant editing an
+assertion that pinned the old wording — the move #559 warns against. It was right here because the
+change *is* the decision and it is issue-backed, but the 2026-08-30 history was left intact: it is
+the evidence for the new shape, and deleting it would have removed the reason while keeping the
+result.
+
+**A TOOLING NOTE THAT COST THREE ATTEMPTS.** Heredocs in this environment collapse `\` to `\`, so
+patch scripts matching C# escape sequences silently fail to find their anchors — and the same
+collapse produced the `SyntaxWarning: invalid escape sequence` messages seen earlier today. Build
+the backslashes with `chr(92)` when matching source that contains them.
+
+**Milestone 6 remains two account-blocked phases** — 6.1 and 6.3. **Open and not mine to choose:**
+#298, #283, #184, #175, #153. **#246** waits to report itself.
+
+**AI.Sentinel #205 is CLOSED** — since 2026-09-12, and it was listed as outstanding here and in
+conversation throughout 2026-09-13 anyway. **Exactly the staleness this session kept finding in
+issues, in the status list used to find it**: #299, #184 and #560 were all fixed-but-open, and
+the check that caught them was never turned on the tracker entry itself. Verify a carried item
+the same way a claim is verified.
+
+**Previously, 2026-09-13 — at the merge.** #559 closed in #593. **This empties the
+locally-finishable queue.**
+
+**#559 WAS NOT A BUG. IT WAS A DEFENSIBLE DECISION THAT NOTHING RECORDED.**
+`QuerySanitiserPipelineDecorator` forwards `RetrieveAsync` unsanitised while sanitising `AskAsync`
+and `AskStreamingAsync`. No doc comment on the file, no test over that path, nothing published —
+**which is indistinguishable from an oversight to everyone except its author.** Confirmed
+deliberate by the operator; the reasoning now lives in the type's remarks, and a test pins it.
+
+**The reasoning:** injection hijacks a model and `RetrieveAsync` reaches none, since it returns
+chunks to a caller who decides what to do with them. Redacting `ignore previous` from a legitimate
+query *about* that phrase would corrupt the search terms while protecting nothing. **The cost is
+stated rather than left to be discovered:** a retrieval-only caller gets nothing on their path.
+
+**THE TEST SAYS WHAT TO DO WHEN IT FAILS.** Revisit the decision; do not update the assertion. A
+test quietly edited to match new behaviour is how a security scope changes without anyone deciding
+to change it. Verified non-vacuous by mutation.
+
+## Where the project stands
+
+**Milestone 6 is down to its two account-blocked phases** — 6.1 Recorded Responses and 6.3 Release
+v1.0. **Nothing else can be advanced without the operator's accounts.**
+
+**Not blocked, but not mine to choose:** #299, #298, #283, #184, #175, #153 are research questions,
+design decisions or explicitly help-wanted — each needs a direction before code.
+
+**Waiting on itself:** #246's emulator race. The diagnostic shipped in #581 means the next
+occurrence arrives with its lock state attached. **Lock expiry is already ruled out by
+measurement**, and the leading candidate is that something settles the message first — the
+signature of a deliberate double-settle matches the real failure exactly.
+
+**Elsewhere:** AI.Sentinel #205.
+
+**Addressed, awaiting a close:** #560 and #575.
+
+## The lesson this run keeps producing
+
+**Four times in two days a guard's calibration, not its idea, was the defect** — a 42-vs-3 count
+from two reasonable greps; a proposal-scan finding 1 where the answer was 7; #560's guard failing
+eleven *correct* entries; #575's flagging two files for a doc comment. **Twice, mutation-testing
+was the only thing between me and editing correct work to satisfy a broken check.** Budget for
+calibration, and mutation-test a guard before trusting any number it produces.
+
+**Previously, 2026-09-13 — at the merge.** #587 fixed and closed in #590.
+
+**A PAPERCUT THAT WAS A VERBAL NOTE FIVE TIMES BECAME AN ISSUE, THEN A FIX, IN ABOUT FORTY
+MINUTES.** `EveryPackageCarriesTheVersionGitVersionDerives` failed on **every branch switch**,
+because GitVersion takes the prerelease label from the branch name — six occurrences in one day,
+each costing a ~3-minute repack of 73 packages. It now skips when the packed versions are
+internally consistent and differ from the derived version **only in the prerelease label**, which
+is all a branch switch changes.
+
+**THE CARE WAS IN WHAT IT STILL REFUSES TO EXCUSE**, because turning a failure into a skip is
+exactly how a guard stops guarding unnoticed. The SDK default `1.0.0` — the defect this guard
+exists for — differs in `MajorMinorPatch` rather than in the label, so it still fails; so do
+versions that disagree with each other, a missing `<version>`, and a wrong `Major.Minor.Patch`.
+Seven cases pin the boundary. **CI cannot reach the skip at all**: both workflows pack on the
+commit they then check.
+
+**THE DECISION WAS EXTRACTED AS A PURE FUNCTION SO IT COULD BE TESTED.** Inline, verifying it would
+have meant packing 73 packages twice. That is the general move whenever a guard grows a relaxation:
+make the relaxation testable without the expensive setup the guard needs.
+
+**It demonstrated itself on its first run** — `artifacts/packages` still held the previous branch's
+build, so the very branch that introduced the fix hit the condition and skipped with the real
+message.
+
+**STILL OPEN AND MINE:** #559 is the last locally-finishable one, and it is a **design decision
+rather than code** — whether `UseQuerySanitiser` skipping `RetrieveAsync` is deliberate. #560 and
+#575 are addressed and await a close.
+
+**Milestone 6 remains two account-blocked phases** — 6.1 and 6.3. Also finishable: #246 once it
+reports itself, and AI.Sentinel #205.
+
+**Previously, 2026-09-13 — at the merge.** #575's derived guard merged as #588. Issue work,
 not a numbered phase.
 
 **KEYING ON THE GROUND TRUTH FOUND MORE THAN KEYING ON THE SYMPTOM.** #575 reported two skip sites

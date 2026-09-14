@@ -523,17 +523,17 @@ public static class BeirRunBudget
             "gate is keyed on (dataset, protocol), so the two share this cell and the filter in the " +
             "skip message selects BOTH -- which is right for a cell that prices both, and wrong for " +
             "an operator who wanted only one. For the corpus run alone: " +
-            "--filter \"FullyQualifiedName~BeirGraphRagCorpusTests.NdcgAt10_UnderTheGraphPath\" -- " +
+            "-method \"*NdcgAt10_UnderTheGraphPath* \" -- " +
             "the method, not the class, because since Phase 5.2.1 the class also holds the depth " +
             "control's run, which is priced by its own cell. For the " +
-            "slice guard alone: --filter \"FullyQualifiedName~GraphRagFunctionsTests\". A THIRD case " +
+            "slice guard alone: -class \"*GraphRagFunctionsTests\". A THIRD case " +
             "shares the cell since #239: BeirGraphRagCorpusTests.Ablations_UnderTheGraphPath, one more " +
             "graph build plus one query pass, recorded in Phase 5.2.1 rather than pinned. A FOURTH " +
             "since Phase 5.2.2: BeirGraphRagAnswerTests, the same graph build plus one answering pass " +
             "per arm replayed from the graph-answers cache; its own pins live in " +
             "MultiHopRagAnswerReproduction and its generation gate is described on the class. The " +
             "confound check that has to pass before either number means anything is " +
-            "--filter \"DisplayName~Chunking_UnderTheGraphPath\", which needs no model and takes " +
+            "-method \"*Chunking_UnderTheGraphPath*\", which needs no model and takes " +
             "under a second. " +
             "**Its cost is now MEASURED, 2026-08-15: 43 m 29 s wall clock (01:16-01:59), of " +
             "which 1,338.1 s (22 m 18 s) is graph construction**, 2,564.3 s the scored " +
@@ -581,9 +581,36 @@ public static class BeirRunBudget
             "**Two of the three calls in that traversal term no longer happen.** " +
             "GetRelationshipsAsync and GetCommunitiesForEntityAsync were awaited with their " +
             "results discarded, and #239 removed them; the ~45,000 scans above are a HISTORICAL " +
-            "term and a re-measurement should come in under it. The sentence is left as written " +
-            "because it records what was derived at the time. GetNeighborsAsync stays -- local " +
-            "search reads its PageRank scores, which is the one result the traversal used. " +
+            "term. The sentence is left as written because it records what was derived at the " +
+            "time. GetNeighborsAsync stays -- local search reads its PageRank scores, which is " +
+            "the one result the traversal used. " +
+            "**RE-MEASURED 2026-09-13, TWICE, AND THE TRAVERSAL TERM IS GONE (#298 step 2).** " +
+            "The local-search pass over all 2,255 judged queries now takes 208.0 s and 202.7 s " +
+            "on two consecutive runs, and the candidate-set control 163.1 s and 158.2 s; the " +
+            "test reports 251.563 s and 249.641 s, 0.8% apart. A 15-to-40 minute traversal term " +
+            "cannot fit inside a 3.4 minute pass, and the relationships table is unchanged at " +
+            "147,021 rows -- so it is an INDEXED problem now rather than a smaller one. That " +
+            "conclusion survives the cache caveat below, because embedding warmth does not " +
+            "touch SQL scans: those 45,000 scans would still happen and would still cost " +
+            "minutes. #297 removed them; this is the evidence. " +
+            "**The wall-clock totals are NOT comparable to the 43 m 29 s above, and no part of " +
+            "that drop is claimed for the index.** Both runs report `embedding cache: 325,661 " +
+            "hits, 0 misses`, where the 2026-08-15 run recorded 145,840 hits against 177,566 " +
+            "misses -- it computed roughly 177,000 embeddings these did not. Most of the " +
+            "difference is that, not the schema. " +
+            "Conditions, recorded to the same standard as the figures above: Windows 11, " +
+            ".NET 10.0.12, CPU ONNX Runtime, 20 logical processors at 4% load, 34.7 GB free of " +
+            "63.7 GB, the Hyper-V VM shut down and Docker/WSL2 idle at zero CPU. An earlier " +
+            "attempt the same evening measured 713 s and 287 s for the same command while a VM " +
+            "held all but 3.4 GB of memory, which is why both numbers above come from runs made " +
+            "after it was stopped, and why one run would not have been enough. " +
+            "**One inconsistency, unexplained and not resolved by picking a reading.** The two " +
+            "pass timings sum to 371 s against a reported test time of 251.6 s, consistently " +
+            "across both runs. Either they overlap or they are measured on different clocks. No " +
+            "total is quoted from them. " +
+            "Quality was bit-identical across both runs and reproduces what is already recorded: " +
+            "nDCG@10 0.56897 for the graph path, 0.59658 for the candidate-set control, against " +
+            "the Real leg anchor of 0.63967. " +
             "**It needs a report cache covering the FULL corpus graph, which is not the slice's.** " +
             "Report cache keys are the rendered report prompts, and those are a function of the " +
             "graph: the corpus graph's ~3,587 communities are ~3,587 entries the slice's 607 do " +
@@ -1222,7 +1249,10 @@ public static class BeirRunBudget
         would pay. The nightly keeps SciFact and ArguAna PARITY (~15-20 min cold, all four cases),
         which is the published number this milestone exists to protect.
         To run this case:
-          {OptInVariable}={cost.Dataset} dotnet test tests/Rag.NET.Benchmarks.Quality.IntegrationTests --no-build --filter "{Filter(cost)}"
+          {OptInVariable}={cost.Dataset} tests/Rag.NET.Benchmarks.Quality.IntegrationTests/bin/Release/net10.0/Rag.NET.Benchmarks.Quality.IntegrationTests.exe {Selector(cost)}
+        Build the project first; the runner does not build. `dotnet test --filter` is NOT the
+        command: Directory.Build.targets raises RAGNET0001 for a VSTest filter under
+        Microsoft.Testing.Platform, which every test project uses since phase 6.2.41.
         """;
 
     /// <summary>Names the protocol the way the run's own output does.</summary>
@@ -1307,7 +1337,7 @@ public static class BeirRunBudget
     };
 
     /// <summary>
-    /// Every cell in the table, paired with the <c>--filter</c> its skip message prints.
+    /// Every cell in the table, paired with the native-runner selector its skip message prints.
     /// </summary>
     /// <remarks>
     /// Exists for <see cref="BeirRunBudgetTests.EveryCellsPrintedFilterCanSelectATest"/>, and it
@@ -1317,16 +1347,16 @@ public static class BeirRunBudget
     /// test.
     /// </remarks>
     internal static IEnumerable<(string Dataset, BeirProtocol Protocol, string Filter)>
-        PrintedFilters()
+        PrintedSelectors()
     {
         foreach (var cost in Costs)
         {
-            yield return (cost.Dataset, cost.Protocol, Filter(cost));
+            yield return (cost.Dataset, cost.Protocol, Selector(cost));
         }
     }
 
     /// <summary>
-    /// The <c>--filter</c> that selects this case.
+    /// The native-runner selector arguments that select this case.
     /// </summary>
     /// <remarks>
     /// <c>DisplayName</c> on both halves, never <c>FullyQualifiedName</c>: the latter stops at the
@@ -1365,17 +1395,18 @@ public static class BeirRunBudget
     /// first by its own name.
     /// </para>
     /// </remarks>
-    private static string Filter(Cost cost)
+    private static string Selector(Cost cost)
     {
         if (cost.Protocol is BeirProtocol.GraphRag)
         {
-            return $"FullyQualifiedName~{nameof(GraphRagFunctionsTests)}" +
-                   $"|FullyQualifiedName~{nameof(BeirGraphRagCorpusTests)}." +
-                   nameof(BeirGraphRagCorpusTests.NdcgAt10_UnderTheGraphPath_IsMeasuredOverTheWholeCorpus) +
-                   $"|FullyQualifiedName~{nameof(BeirGraphRagCorpusTests)}." +
-                   nameof(BeirGraphRagCorpusTests.Ablations_UnderTheGraphPath_PageRankWeightZero_AndGraphReach) +
-                   $"|FullyQualifiedName~{nameof(BeirGraphRagAnswerTests)}";
+            return Class(nameof(GraphRagFunctionsTests))
+                   + " " + Method(nameof(BeirGraphRagCorpusTests.NdcgAt10_UnderTheGraphPath_IsMeasuredOverTheWholeCorpus))
+                   + " " + Method(nameof(BeirGraphRagCorpusTests.Ablations_UnderTheGraphPath_PageRankWeightZero_AndGraphReach))
+                   + " " + Class(nameof(BeirGraphRagAnswerTests));
         }
+
+        var isClass = cost.Protocol is BeirProtocol.Parity or BeirProtocol.Real
+            or BeirProtocol.Comparison or BeirProtocol.SemanticKernel;
 
         var discriminator = cost.Protocol switch
         {
@@ -1408,8 +1439,22 @@ public static class BeirRunBudget
             _ => throw new ArgumentOutOfRangeException(nameof(cost), cost.Protocol, null),
         };
 
-        return $"DisplayName~{discriminator}&DisplayName~{cost.Dataset}";
+        return isClass ? Class(discriminator) : Method(discriminator);
     }
+
+    /// <summary>Renders a class selector for the native runner.</summary>
+    /// <param name="name">The class's simple name.</param>
+    /// <returns>The argument, quoted.</returns>
+    private static string Class(string name) => $"-class \"*{name}\"";
+
+    /// <summary>Renders a method selector for the native runner.</summary>
+    /// <param name="fragment">A fragment of the method name, or the whole name.</param>
+    /// <returns>The argument, quoted.</returns>
+    /// <remarks>
+    /// Wildcarded on both sides: the discriminators are fragments, and several carry a trailing
+    /// underscore that is load-bearing rather than cosmetic — see the switch above.
+    /// </remarks>
+    private static string Method(string fragment) => $"-method \"*{fragment}*\"";
 
     /// <summary>What one dataset costs under one protocol, and whether the nightly can afford it.</summary>
     /// <param name="Dataset">The BEIR dataset name.</param>

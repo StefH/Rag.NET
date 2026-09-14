@@ -111,6 +111,54 @@ caches it between runs, and points all three variables at runner paths — and *
 are not there afterwards, because there is no fork-safety argument for skipping a test whose input
 the job could have fetched.
 
+**The corpora are cached too, and were not until #175.** Every nightly run re-downloaded all five —
+four BEIR archives from TU Darmstadt and MultiHop-RAG's two Hugging Face files — because
+`$RUNNER_TEMP` is fresh per job and nothing kept them. The models above are pinned behind caches and
+so touch Hugging Face only on a miss; MultiHop-RAG touched it nightly, which is the part #175
+raised. The job now caches `$RUNNER_TEMP/beir` on a key hashing `BeirDatasetDescriptor.cs` and
+`MultiHopRagSource.cs`, the two files holding every pin.
+
+Two properties of that step are load-bearing and are pinned by `BeirCorpusCacheTests`. The
+`embeddings` subdirectory is **excluded** — `EmbeddingCache` writes vectors under the same root, they
+grow with the ablation list rather than the corpus list, and caching them is a separate decision with
+its own argument about size. And the step has **no `restore-keys`**, unlike the NuGet cache above it:
+`BeirDatasetCache` treats a directory holding `corpus.jsonl` and `queries.jsonl` as present and never
+re-verifies it, because the published MD5 is checked during download and a cache hit skips the
+download. A prefix-matched restore would serve a corpus pinned to a digest the descriptors no longer
+name, and every measurement taken over it would be filed under the new pin.
+
+**The vectors are cached separately, and that step requires what the corpus step forbids.** The
+corpus cache removed the download; the embedding cache removes the recomputation, which is the
+larger cost — the two cells `BeirRunBudget` marks `FitsTheNightly`, SciFact and ArguAna under
+Parity, embed roughly 29,000 texts on a CPU runner and account for most of the job's measurement
+time. This step **does** carry `restore-keys`, and the reason is a property rather than a
+preference: `EmbeddingCache` addresses entries by SHA-256 over the model identity and the text, so a
+restored entry is either keyed by the exact text being embedded — in which case it is that text's
+vector — or is never looked up. **A stale corpus measures; a stale vector cannot be read by
+mistake.** The key also rotates on `run_id`, because a cache entry is immutable once written and a
+fixed key would freeze whatever the first night embedded.
+
+`MINILM_REVISION` appears on both the key and the fallback prefix, and it is load-bearing.
+`BeirEmbeddingCacheTests` asserts it on each line separately, after a whole-step search passed a
+mutation that removed it from the key while the prefix line still mentioned it.
+
+**`BeirHarness.ModelIdentity` now carries the revision too, and until
+[#607](https://github.com/MarcelRoozekrans/Rag.NET/issues/607) it did not.** It named
+`all-MiniLM-L6-v2/onnx` — a repository, not an export — so bumping the pin changed no cache key at
+all, and every vector the previous export produced read as a hit. That made CI's protection the only
+protection: a developer machine had nothing between a bumped model and the old export's vectors.
+Both halves are now keyed on the revision, and `ModelRevisionAgreementTests` asserts that the
+workflow's pin and the harness constant are the same string **and** that the identity is actually
+built from it — because two constants that agree while nothing consumes them is not the property
+worth having.
+
+**Bumping the model now goes cold on purpose, everywhere.** An entry stores `RAGNETE1`, the 32-byte
+key digest, the dimension and the floats — **never the text** — so no entry can be re-keyed in
+place: computing the new digest needs the input, which was never kept. The old entries become
+unreachable rather than wrong. Nothing is re-embedded until something asks for it, so the bill is
+whatever cells are actually run: the nightly's two cost minutes, a full ablation sweep costs hours,
+and it costs those hours only if somebody sweeps.
+
 **`RAGNET_TESSDATA` reaches nothing in CI, and that is now a decision with a runnable procedure
 rather than an open defect.** Its only reader, the real-Tesseract OCR test, is inside
 `#if ENABLE_OCR`, which no workflow build defines — deliberately: the published
@@ -518,6 +566,34 @@ RAGNET_GRAPHRAG_ANSWERS_GENERATE=1 \
 RAGNET_BEIR_LONG_RUNS=1 tests/Rag.NET.Benchmarks.Quality.IntegrationTests/bin/Release/net10.0/Rag.NET.Benchmarks.Quality.IntegrationTests.exe \
   -class "*BeirGraphRagAnswerTests"
 ```
+
+### The graph caches are published, so none of the above is needed to replay
+
+Everything in this section describes **filling** the caches, which costs money and needs a key. To
+only **replay** them — which is what the pinned figures check, and what anyone reproducing the
+GraphRAG results actually wants — download the published bundle instead:
+
+```bash
+curl -L -o ragnet-graphrag-cache.tar.gz   https://github.com/MarcelRoozekrans/Rag.NET/releases/download/graphrag-cache-2026-09-14/ragnet-graphrag-cache.tar.gz
+tar -xzf ragnet-graphrag-cache.tar.gz -C "$RAGNET_BEIR_CACHE"
+```
+
+93 MB compressed, 143 MB unpacked: `graph-extractions`, `graph-reports` and `graph-answers`, which
+is every cache the graph cells replay from. With those in place `BeirGraphRagAnswerTests` and the
+extraction-backed cells run with **no `OPENROUTER_API_KEY` at all**, because refuse-on-miss is the
+default and a populated cache never misses.
+
+**It carries only MultiHop-RAG, and that is structural rather than a filter.**
+`BeirProtocol.GraphRag` is declared by that dataset alone, so nothing else can have written to those
+directories. MultiHop-RAG is **ODC-By 1.0** by its own authors' declaration, which permits
+redistributing a derived database provided the attribution travels with it — so `NOTICE.md` is
+inside the archive and belongs there if you pass the bundle on.
+
+**The `hypotheticals`, `metadata-extraction` and `self-query` caches are deliberately absent.** They
+span FiQA and TREC-COVID, whose upstream terms permit no redistribution — see the licence fields on
+`BeirDatasetDescriptor`, which follow upstream rather than the Hugging Face mirrors' blanket tag —
+and every cache here is hash-sharded with no dataset separation, so they cannot be split by corpus
+without re-deriving them. Filling those still needs a key, and the sections above still apply.
 
 ### Self-query, `RAGNET_SELF_QUERY_GENERATE`
 
@@ -1071,10 +1147,26 @@ row — `-method` and `-filter` both select the *theory* and run **all** of its 
 2026-09-12.
 
 For BEIR that is a real cost difference, so the converted commands in this file say so inline rather
-than quietly running every dataset. There is no environment variable that narrows the dataset either
-— `RAGNET_BEIR_CACHE`, `RAGNET_BEIR_LONG_RUNS` and `RAGNET_BEIR_RUN_INDEX` are the only ones the
-harness reads. If you need one dataset, the options today are to run them all, or to add a selector
-to the harness.
+than quietly running every dataset.
+
+**Corrected 2026-09-13.** This section previously said there was no environment variable that
+narrowed the dataset either, and then listed the one that does. **`RAGNET_BEIR_LONG_RUNS` takes a
+comma-separated list of dataset names** — `1` or `true` opts every dataset in, `0` or `false` opts
+out, and anything else is read as dataset names, *throwing* on a name the suite does not know rather
+than falling back to "everything" and turning a typo into the most expensive run available. See
+`BeirRunBudget.IsOptedInFor`.
+
+So the cost *is* narrowable for every cell the budget gates: a row for a dataset you did not select
+skips, and the run pays for the one you asked for.
+
+```bash
+RAGNET_BEIR_LONG_RUNS=arguana   tests/Rag.NET.Benchmarks.Quality.IntegrationTests/bin/Release/net10.0/Rag.NET.Benchmarks.Quality.IntegrationTests.exe   -class "*BeirRealChunkingTests"
+```
+
+**The filter-level limitation above is unchanged and still true**: no filter selects a theory data
+row, so the theory still *runs* and its other rows still appear — they skip rather than work. What
+was wrong was only the claim about environment variables, and the error came from enumerating the
+three names without reading what the second one does with its value.
 
 **It is worth preferring for a second reason:** it prints per-test output and the **skip reason** for
 skipped tests, which `dotnet test` suppresses. On this project, where almost everything is gated
