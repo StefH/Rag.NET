@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.0.2](https://github.com/MarcelRoozekrans/Rag.NET/compare/v1.0.1...v1.0.2) (2026-09-16)
+
+
+### Bug Fixes
+
+* **docs:** the front page listed 18 of 36 pages, and published the backlog ([#652](https://github.com/MarcelRoozekrans/Rag.NET/issues/652)) ([b0dcdd3](https://github.com/MarcelRoozekrans/Rag.NET/commit/b0dcdd3e70fe4859ca20800b125c6d61c6828027))
+
+## [1.0.1](https://github.com/MarcelRoozekrans/Rag.NET/compare/v1.0.0...v1.0.1) (2026-09-16)
+
+
+### Bug Fixes
+
+* **docs:** the package catalogue named eight packages that do not exist ([#648](https://github.com/MarcelRoozekrans/Rag.NET/issues/648)) ([dea654a](https://github.com/MarcelRoozekrans/Rag.NET/commit/dea654a6baa418446bda2e2ea82bbf479efa8f93))
+* **docs:** thirteen pages published to live URLs the sidebar never named ([#647](https://github.com/MarcelRoozekrans/Rag.NET/issues/647)) ([c38a471](https://github.com/MarcelRoozekrans/Rag.NET/commit/c38a4711212876e2c7e3596d2182f57e5bce2925))
+
 ## 1.0.0 (2026-09-15)
 
 

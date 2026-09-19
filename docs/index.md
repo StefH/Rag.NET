@@ -12,26 +12,77 @@ Rag.NET is a modular Retrieval-Augmented Generation (RAG) pipeline library for .
 
 ## Pages
 
+Grouped the way [the sidebar](https://marcelroozekrans.github.io/Rag.NET/) is.
+
+**Start here**
+
 | Page | What it covers |
 |------|---------------|
 | [Why RAG?](why-rag.md) | What RAG is, the problem it solves, and when Rag.NET is the right tool |
 | [Getting Started](getting-started.md) | Dependency injection setup, ingesting a document, and running a Q&A loop |
 | [Positioning](positioning.md) | Where Rag.NET sits against Semantic Kernel, LangChain, LlamaIndex and Haystack — and where it loses |
-| [Architecture](guide/architecture.md) | Pipeline internals, data-flow diagram, all interfaces and core models |
-| [Ingestion](guide/ingestion.md) | Parsers, `DocumentMetadata`, `IngestionOptions`, progress reporting |
-| [Data Providers](guide/data-providers.md) | Cloud storage and web connectors; OAuth token management; delta ingestion |
-| [Chunking](guide/chunking.md) | `FixedSize`, `Recursive`, and `TokenAware` strategies with trade-off table |
-| [Retrieval](guide/retrieval.md) | `RetrievalOptions`, semantic search, hybrid BM25+RRF search, metadata filtering |
-| [Post-Retrieval](guide/post-retrieval.md) | Lost-in-the-Middle reordering and redundancy filtering |
-| [Conversational Memory](guide/memory.md) | In-session history trimming, token-budget management, and persistent cross-session recall |
-| [Vector Stores](guide/vector-stores.md) | pgvector, Qdrant, Azure AI Search; hybrid search support matrix |
-| [Evaluation](guide/evaluation.md) | `EmbeddingDistanceEvaluator`, `EvaluationSample`, score interpretation |
-| [Observability](guide/observability.md) | `ILogger` structured logging, OpenTelemetry `ActivitySource`, Polly resilience |
-| [Extending](guide/extending.md) | Implementing `IDocumentParser`, `IVectorStore`, `IChunkingStrategy` |
-| [Mediator](guide/mediator.md) | Dispatching ingest/retrieve/delete commands via `Rag.NET.Mediator` and ZeroAlloc.Mediator |
-| [OSS Libraries](reference/oss-libraries.md) | Every open-source dependency used, where it is used, and why |
-| [Answer Engines](answer-engines.md) | MapReduce, Refine, and Dispatching answer engine strategies |
-| [Query Techniques](query-techniques.md) | HyDE and Multi-Query retrieval expansion |
+
+**The pipeline**
+
+| Page | What it covers |
+|------|---------------|
+| [Choosing Packages](guide/choosing-packages.md) | Which two or three of the 73 packages a given pipeline actually needs |
+| [Architecture](guide/architecture.md) | Pipeline internals, data-flow diagram, the core interfaces and models |
+| [Ingestion](guide/ingestion.md) | Parsers, `DocumentMetadata`, `IngestionOptions`, OCR, progress reporting |
+| [Chunking](guide/chunking.md) | Eight strategies with a trade-off table, plus the domain-specific templates |
+| [Retrieval](guide/retrieval.md) | `RetrievalOptions`, semantic and hybrid BM25+RRF search, metadata filtering, CRAG |
+| [Post-Retrieval](guide/post-retrieval.md) | Lost-in-the-Middle reordering, redundancy filtering, MMR |
+| [Vector Stores](guide/vector-stores.md) | All seven stores, with the hybrid-search support matrix |
+
+**Advanced retrieval**
+
+| Page | What it covers |
+|------|---------------|
+| [RAPTOR](guide/raptor.md) | Recursive abstractive tree summarisation: tree scope, retrieval modes, cluster sizing |
+| [GraphRAG](guide/graphrag.md) | Entity extraction, community detection, local and global search, mind-map extraction |
+| [Query Techniques](query-techniques.md) | HyDE, multi-query expansion, contextual compression |
+| [Answer Engines](answer-engines.md) | MapReduce, Refine, FLARE and Dispatching answer strategies |
+| [Conversational Memory](guide/memory.md) | In-session history trimming, token budgets, persistent cross-session recall |
+
+**Sources**
+
+| Page | What it covers |
+|------|---------------|
+| [Data Providers](guide/data-providers.md) | All 18 connectors: auth, delta-sync shape and options for each |
+
+**Production**
+
+| Page | What it covers |
+|------|---------------|
+| [Security](guide/security.md) | Prompt-injection defence in depth, PII detection, RBAC, audit logging |
+| [Resilience](guide/resilience.md) | Retry and circuit-breaking, rate limiting, cost budgeting, fallback chains |
+| [Observability](guide/observability.md) | `ILogger` structured logging and the `ActivitySource` the pipeline emits on |
+| [Pipeline Debugger](guide/diagnostics.md) | Per-query traces: chunk scores, stage latencies, guard actions |
+| [Evaluation](guide/evaluation.md) | Embedding-distance and LLM-judge evaluators, RAGAS metrics, A/B comparison |
+| [A/B Shadow Mode](guide/shadow-mode.md) | Running a second pipeline against production traffic without touching the response |
+
+**Integration**
+
+| Page | What it covers |
+|------|---------------|
+| [MCP Server](guide/mcp.mdx) | Exposing a pipeline to an LLM agent as MCP tools, and the four deployment patterns |
+| [REST and gRPC](guide/api.md) | Serving a pipeline over HTTP or gRPC, with clients that implement `IRagPipeline` |
+| [CLI (`ragnet`)](guide/cli.md) | Ingesting and querying a configured pipeline from the shell |
+| [Mediator](guide/mediator.md) | Dispatching ingest/retrieve/delete commands via `IMediator` |
+| [Extending](guide/extending.md) | Implementing `IDocumentParser`, `IVectorStore`, `IChunkingStrategy`, `IDocumentOcrEngine` |
+
+**Reference**
+
+| Page | What it covers |
+|------|---------------|
+| [Benchmarks](reference/benchmarks.md) | Measured throughput for chunking, embedding and retrieval |
+| [Retrieval Quality](reference/retrieval-quality.md) | BEIR results per technique, and the ablation table behind them |
+| [Library Comparison](reference/library-comparison.md) | Measured quality and cost against other RAG libraries |
+| [Comparison Scope](reference/library-comparison-scope.md) | What each entrant was read for, cited per claim |
+| [Comparison Defaults](reference/library-comparison-defaults.md) | The defaults every entrant was measured at |
+| [OpenTelemetry](reference/opentelemetry.md) | Every span and metric the pipeline emits, and how to export them |
+| [OSS Libraries](reference/oss-libraries.md) | Every open-source dependency, where it is used, and why |
+| [CI and Test Tiers](reference/ci.md) | Which suites run where, and what each tier needs to run at all |
 
 ## Quick links
 
@@ -45,128 +96,153 @@ Rag.NET is a modular Retrieval-Augmented Generation (RAG) pipeline library for .
 
 ## Package layout
 
+Rag.NET ships as 73 packages so that a pipeline downloads only the dependencies it actually
+uses. The shape is three layers — abstractions, core, and a satellite per opt-in feature — and
+[Choosing packages](guide/choosing-packages.md) walks through which two or three are yours.
+
 ```mermaid
 flowchart TD
     ABSTRACTIONS["Rag.NET.Abstractions<br>Interfaces · Models · Options · IRagBuilder"] --> CORE
-    ABSTRACTIONS --> CHUNKING["Rag.NET.Chunking<br>HierarchicalMerger · CodeChunking"]
-    ABSTRACTIONS --> CHUNKING_SEM["Rag.NET.Chunking.Semantic<br>Semantic chunking"]
-    ABSTRACTIONS --> CHUNKING_TOK["Rag.NET.Chunking.TokenAware<br>Token-count chunking"]
-    ABSTRACTIONS --> AE["Rag.NET.AnswerEngines<br>MapReduce · Refine · Dispatching"]
-    ABSTRACTIONS --> QT["Rag.NET.QueryTechniques<br>HyDE · MultiQuery"]
-    ABSTRACTIONS --> MEM["Rag.NET.Memory<br>Persistent cross-session memory"]
-    ABSTRACTIONS --> CHUNKING_CS["Rag.NET.Chunking.CSharp<br>Roslyn-based C# chunking"]
-    ABSTRACTIONS --> SBUS["Rag.NET.Ingestion.AzureServiceBus<br>Service Bus ingestion trigger"]
 
-    CORE["Rag.NET<br>Core pipeline · Text/Markdown/CSV/JSON parsers · Recursive chunking"]
+    CORE["Rag.NET<br>Core pipeline · Text/Markdown/CSV/JSON parsers · Recursive chunking<br>Brings Abstractions and QueryTechniques transitively"]
 
-    CORE --> PG["Rag.NET.VectorStores.PgVector<br>PostgreSQL + pgvector"]
-    CORE --> QD["Rag.NET.VectorStores.Qdrant<br>Qdrant"]
-    CORE --> AZ["Rag.NET.VectorStores.AzureAISearch<br>Azure AI Search (native hybrid)"]
+    CORE --> STORES["Vector stores<br>PgVector · Qdrant · AzureAISearch<br>Pinecone · Chroma · Weaviate · Redis"]
+    CORE --> PARSERS["Parsers<br>Pdf (+AzureDocumentIntelligence) · Html · Office<br>Email · Epub · Archive · Audio · Vision"]
+    CORE --> SOURCES["Data providers<br>DataProviders base + 18 connectors"]
+    CORE --> RETRIEVAL["Advanced retrieval<br>Raptor (+Store) · GraphRag · Graph<br>AnswerEngines · Memory · Reranking · WebSearch.Tavily"]
+    CORE --> CHUNK["Chunking<br>Chunking · Chunking.CSharp<br>Chunking.Templates · Embeddings.Onnx"]
+    CORE --> PROD["Production<br>Security (+AspNetCore, +Audit.Sqlite)<br>Resilience · Caching · Storage.Sqlite"]
+    CORE --> OBS["Observability<br>Telemetry · Diagnostics (+AspNetCore)<br>Evaluation (+Ragas)"]
+    CORE --> SERVE["Serving<br>Api (+Client) · Api.Grpc (+Client)<br>Mcp (+AspNetCore, +Tool) · Hosting · Cli · Mediator"]
 
-    CORE --> PDF["Rag.NET.Parsers.Pdf"]
-    CORE --> HTML["Rag.NET.Parsers.Html"]
-    CORE --> WORD["Rag.NET.Parsers.Word"]
-    CORE --> XL["Rag.NET.Parsers.Excel"]
-    CORE --> PPT["Rag.NET.Parsers.PowerPoint"]
-
-    CORE --> EVAL["Rag.NET.Evaluation<br>Embedding-based answer quality"]
-    CORE --> MED["Rag.NET.Mediator<br>ZeroAlloc.Mediator integration"]
-
-    CORE --> CONFLUENCE["Rag.NET.DataProviders.Confluence<br>Confluence pages"]
-    CORE --> JIRA["Rag.NET.DataProviders.Jira<br>Jira issues"]
-    CORE --> NOTION["Rag.NET.DataProviders.Notion<br>Notion pages"]
-    CORE --> ASANA["Rag.NET.DataProviders.Asana<br>Asana tasks"]
-    CORE --> SLACK["Rag.NET.DataProviders.Slack<br>Slack messages"]
-    CORE --> TEAMS["Rag.NET.DataProviders.MicrosoftTeams<br>Teams messages"]
-    CORE --> GMAIL["Rag.NET.DataProviders.Gmail<br>Gmail messages"]
-    CORE --> GITLAB["Rag.NET.DataProviders.GitLab<br>GitLab repository files"]
-    CORE --> BITBUCKET["Rag.NET.DataProviders.Bitbucket<br>Bitbucket repository files"]
-    CORE --> ZENDESK["Rag.NET.DataProviders.Zendesk<br>Zendesk tickets &amp; articles"]
-    CORE --> AIRTABLE["Rag.NET.DataProviders.Airtable<br>Airtable rows"]
-    CORE --> GRAPHRAG["Rag.NET.GraphRag<br>GraphRAG · Mind-Map Extractor"]
-    CORE --> RERANK_CO["Rag.NET.Reranking.Cohere<br>Cohere reranking API"]
-    CORE --> RERANK_ON["Rag.NET.Reranking.Onnx<br>Local ONNX cross-encoder"]
-    CORE --> AUDIO["Rag.NET.Parsers.Audio<br>Whisper.net transcription"]
-    CORE --> AZBLOB["Rag.NET.DataProviders.AzureBlob<br>Azure Blob Storage"]
-    CORE --> BOX["Rag.NET.DataProviders.Box<br>Box"]
-    CORE --> DROPBOX["Rag.NET.DataProviders.Dropbox<br>Dropbox"]
-    CORE --> GDRIVE["Rag.NET.DataProviders.GoogleDrive<br>Google Drive"]
-    CORE --> ONEDRIVE["Rag.NET.DataProviders.OneDrive<br>OneDrive"]
-    CORE --> SHAREPOINT["Rag.NET.DataProviders.SharePoint<br>SharePoint"]
-    CORE --> WEB["Rag.NET.DataProviders.Web<br>Web crawler · Sitemap · RSS"]
-
-    style PG fill:#e8f4fd,stroke:#4a90d9
-    style QD fill:#e8f4fd,stroke:#4a90d9
-    style AZ fill:#e8f4fd,stroke:#4a90d9
-    style EVAL fill:#e8f4fd,stroke:#4a90d9
-    style MED fill:#e8f4fd,stroke:#4a90d9
     style ABSTRACTIONS fill:#fff3cd,stroke:#f0ad4e
-    style CHUNKING fill:#e8f4fd,stroke:#4a90d9
-    style CHUNKING_SEM fill:#e8f4fd,stroke:#4a90d9
-    style CHUNKING_TOK fill:#e8f4fd,stroke:#4a90d9
-    style AE fill:#e8f4fd,stroke:#4a90d9
-    style QT fill:#e8f4fd,stroke:#4a90d9
-    style MEM fill:#e8f4fd,stroke:#4a90d9
-    style CHUNKING_CS fill:#e8f4fd,stroke:#4a90d9
-    style SBUS fill:#e8f4fd,stroke:#4a90d9
-    style GRAPHRAG fill:#e8f4fd,stroke:#4a90d9
-    style RERANK_CO fill:#e8f4fd,stroke:#4a90d9
-    style RERANK_ON fill:#e8f4fd,stroke:#4a90d9
-    style AUDIO fill:#e8f4fd,stroke:#4a90d9
-    style AZBLOB fill:#e8f4fd,stroke:#4a90d9
-    style BOX fill:#e8f4fd,stroke:#4a90d9
-    style DROPBOX fill:#e8f4fd,stroke:#4a90d9
-    style GDRIVE fill:#e8f4fd,stroke:#4a90d9
-    style ONEDRIVE fill:#e8f4fd,stroke:#4a90d9
-    style SHAREPOINT fill:#e8f4fd,stroke:#4a90d9
-    style WEB fill:#e8f4fd,stroke:#4a90d9
+    style STORES fill:#e8f4fd,stroke:#4a90d9
+    style PARSERS fill:#e8f4fd,stroke:#4a90d9
+    style SOURCES fill:#e8f4fd,stroke:#4a90d9
+    style RETRIEVAL fill:#e8f4fd,stroke:#4a90d9
+    style CHUNK fill:#e8f4fd,stroke:#4a90d9
+    style PROD fill:#e8f4fd,stroke:#4a90d9
+    style OBS fill:#e8f4fd,stroke:#4a90d9
+    style SERVE fill:#e8f4fd,stroke:#4a90d9
 ```
+
+### Core
 
 | NuGet package | Contents |
 |--------------|----------|
-| `Rag.NET` | Core pipeline, abstractions, Text/Markdown/CSV/JSON parsers, Recursive chunking |
-| `Rag.NET.Abstractions` | All 20+ interfaces, models, and options — no implementations, no heavy dependencies |
-| `Rag.NET.Chunking` | `HierarchicalMergerChunkingStrategy`, `CodeChunkingStrategy` |
-| `Rag.NET.Chunking.Semantic` | `SemanticChunkingStrategy` — splits at semantic boundaries using embeddings |
-| `Rag.NET.Chunking.TokenAware` | `TokenAwareChunkingStrategy` — splits by token count rather than characters |
-| `Rag.NET.Chunking.CSharp` | `CSharpChunkingStrategy` — Roslyn-based semantic chunking for C# source files |
-| `Rag.NET.AnswerEngines` | `MapReduceAnswerEngine`, `RefineAnswerEngine`, `DispatchingAnswerEngine` |
-| `Rag.NET.QueryTechniques` | `LlmHypotheticalDocumentGenerator` (HyDE), `LlmQueryExpander` (MultiQuery) |
-| `Rag.NET.Memory` | `PersistentConversationMemory` — SQLite-backed cross-session memory |
-| `Rag.NET.VectorStores.PgVector` | PostgreSQL + pgvector vector store |
-| `Rag.NET.VectorStores.Qdrant` | Qdrant vector store |
-| `Rag.NET.VectorStores.AzureAISearch` | Azure AI Search vector store with native hybrid search |
-| `Rag.NET.Parsers.Pdf` | PDF parser |
-| `Rag.NET.Parsers.Pdf.AzureDocumentIntelligence` | Whole-document OCR for the PDF parser via Azure Document Intelligence (paid, per page) |
+| `Rag.NET` | Core pipeline, Text/Markdown/CSV/JSON parsers, `RecursiveChunkingStrategy`, in-memory vector store |
+| `Rag.NET.Abstractions` | Interfaces, models and options — no implementations, no heavy dependencies. Arrives with core |
+| `Rag.NET.QueryTechniques` | [HyDE, multi-query expansion and contextual compression](query-techniques.md). Arrives with core |
+
+### Chunking
+
+| NuGet package | Contents |
+|--------------|----------|
+| `Rag.NET.Chunking` | Hierarchical-merge, code-aware, late, proposition, token-aware and embedding-based semantic chunking |
+| `Rag.NET.Chunking.CSharp` | `CSharpChunkingStrategy` — Roslyn-based semantic chunking for C# source |
+| `Rag.NET.Chunking.Templates` | Domain templates: Legal, Book, Academic Paper, Q&A Pairs, Email, Résumé |
+| `Rag.NET.Embeddings.Onnx` | ONNX Runtime token-level embeddings, which late chunking needs |
+
+### Vector stores
+
+| NuGet package | Contents |
+|--------------|----------|
+| `Rag.NET.VectorStores.PgVector` | PostgreSQL + pgvector, with sparse-vector support |
+| `Rag.NET.VectorStores.Qdrant` | Qdrant |
+| `Rag.NET.VectorStores.AzureAISearch` | Azure AI Search, with native hybrid search |
+| `Rag.NET.VectorStores.Pinecone` | Pinecone |
+| `Rag.NET.VectorStores.Chroma` | Chroma |
+| `Rag.NET.VectorStores.Weaviate` | Weaviate |
+| `Rag.NET.VectorStores.Redis` | Redis (RediSearch) |
+
+### Parsers
+
+| NuGet package | Contents |
+|--------------|----------|
+| `Rag.NET.Parsers.Pdf` | PDF parser, with table extraction and Tesseract OCR |
+| `Rag.NET.Parsers.Pdf.AzureDocumentIntelligence` | Whole-document OCR engine for the PDF parser (paid, per page) |
 | `Rag.NET.Parsers.Html` | HTML parser (AngleSharp) |
-| `Rag.NET.Parsers.Word` | Word `.docx` parser (OpenXml) |
-| `Rag.NET.Parsers.Excel` | Excel `.xlsx` parser (OpenXml) |
-| `Rag.NET.Parsers.PowerPoint` | PowerPoint `.pptx` parser (OpenXml) |
-| `Rag.NET.Parsers.Audio` | WAV/MP3/FLAC transcription via Whisper.net (local, no API key required) |
-| `Rag.NET.Evaluation` | Answer-quality evaluation via embedding cosine similarity |
-| `Rag.NET.Mediator` | ZeroAlloc.Mediator integration — dispatch ingest/retrieve/delete via `IMediator` |
-| `Rag.NET.GraphRag` | GraphRAG entity extraction, community detection, local/global search, Mind-Map Extractor |
-| `Rag.NET.Reranking.Cohere` | `CohereReranker` — hosted cross-encoder reranking via Cohere API |
-| `Rag.NET.Reranking.Onnx` | `OnnxReranker` — local ONNX cross-encoder reranking (no API key) |
-| `Rag.NET.Ingestion.AzureServiceBus` | `AzureServiceBusIngestionTrigger` — ingests each queue/subscription message end to end and settles it (complete / abandon / dead-letter); opt-in sessions for per-document FIFO |
+| `Rag.NET.Parsers.Office` | Word `.docx`, Excel `.xlsx` and PowerPoint `.pptx` in one package (OpenXml) |
+| `Rag.NET.Parsers.Email` | EML and MSG email parser (MimeKit) |
+| `Rag.NET.Parsers.Epub` | EPUB parser |
+| `Rag.NET.Parsers.Archive` | ZIP archive parser — parses each entry with whichever parser claims it |
+| `Rag.NET.Parsers.Audio` | WAV/MP3/FLAC transcription via Whisper.net (local, no API key) |
+| `Rag.NET.Parsers.Vision` | Image and video description via a vision LLM and FFMpeg |
+
+### Data providers
+
+| NuGet package | Contents |
+|--------------|----------|
+| `Rag.NET.DataProviders` | Shared OAuth, polling and watermark infrastructure. Arrives with any connector |
+| `Rag.NET.DataProviders.Web` | Web crawler, sitemap loader, RSS/Atom feed loader |
+| `Rag.NET.DataProviders.Microsoft365` | Exchange/Outlook mail, Teams, OneDrive and SharePoint via Microsoft Graph |
+| `Rag.NET.DataProviders.AzureBlob` | Azure Blob Storage — ETag/LastModified delta sync |
+| `Rag.NET.DataProviders.GoogleDrive` | Google Drive — pageToken change stream |
+| `Rag.NET.DataProviders.Dropbox` | Dropbox — cursor-based delta sync |
+| `Rag.NET.DataProviders.Box` | Box — events cursor delta sync |
 | `Rag.NET.DataProviders.Confluence` | Confluence pages via REST API |
 | `Rag.NET.DataProviders.Jira` | Jira issues via REST API |
 | `Rag.NET.DataProviders.Notion` | Notion pages and blocks via REST API |
 | `Rag.NET.DataProviders.Asana` | Asana tasks and subtasks via REST API |
+| `Rag.NET.DataProviders.Linear` | Linear issues via GraphQL API |
 | `Rag.NET.DataProviders.Slack` | Slack channel messages via REST API |
-| `Rag.NET.DataProviders.MicrosoftTeams` | Teams channel messages via Microsoft Graph |
 | `Rag.NET.DataProviders.Gmail` | Gmail messages via IMAP (MailKit) |
+| `Rag.NET.DataProviders.GitHub` | GitHub repository files via Octokit |
 | `Rag.NET.DataProviders.GitLab` | GitLab repository files via NGitLab |
 | `Rag.NET.DataProviders.Bitbucket` | Bitbucket repository files via REST API |
-| `Rag.NET.DataProviders.Zendesk` | Zendesk tickets and help center articles |
+| `Rag.NET.DataProviders.Zendesk` | Zendesk tickets and help-centre articles |
 | `Rag.NET.DataProviders.Airtable` | Airtable rows and attachments |
-| `Rag.NET.DataProviders.AzureBlob` | Azure Blob Storage — ETag/LastModified delta sync |
-| `Rag.NET.DataProviders.Box` | Box — events cursor delta sync |
-| `Rag.NET.DataProviders.Dropbox` | Dropbox — cursor-based delta sync |
-| `Rag.NET.DataProviders.GoogleDrive` | Google Drive — pageToken change stream |
-| `Rag.NET.DataProviders.OneDrive` | OneDrive via Microsoft Graph — deltaLink token |
-| `Rag.NET.DataProviders.SharePoint` | SharePoint via Microsoft Graph — deltaLink token |
-| `Rag.NET.DataProviders.Web` | Web crawler, Sitemap loader, RSS/Atom feed loader |
+| `Rag.NET.Ingestion.AzureServiceBus` | Consumes a queue or subscription, ingests each message end to end, and settles it (complete / abandon / dead-letter) |
+
+### Advanced retrieval
+
+| NuGet package | Contents |
+|--------------|----------|
+| `Rag.NET.Raptor` | [RAPTOR](guide/raptor.md) — recursive abstractive tree summarisation, corpus-scoped by default |
+| `Rag.NET.Raptor.Store` | Persistent leaf-chunk storage, which corpus-level RAPTOR clustering requires |
+| `Rag.NET.GraphRag` | [GraphRAG](guide/graphrag.md) — entity extraction, community detection, local and global search, Mind-Map Extractor |
+| `Rag.NET.Graph` | Standalone graph library — Leiden community detection, `IGraphStore` |
+| `Rag.NET.AnswerEngines` | MapReduce, Refine, FLARE and Dispatching [answer engines](answer-engines.md) |
+| `Rag.NET.Memory` | Persistent SQLite-backed [cross-session conversation memory](guide/memory.md) |
+| `Rag.NET.Reranking.Cohere` | `CohereReranker` — hosted cross-encoder reranking |
+| `Rag.NET.Reranking.Onnx` | `OnnxReranker` — local ONNX cross-encoder reranking (no API key) |
+| `Rag.NET.WebSearch.Tavily` | Tavily web search, the corrective-RAG (CRAG) fallback source |
+
+### Production
+
+| NuGet package | Contents |
+|--------------|----------|
+| `Rag.NET.Security` | [Prompt-injection defence in depth](guide/security.md) — chunk and query sanitisation, retrieval guards, prompt hardening, PII detection, RBAC |
+| `Rag.NET.Security.AspNetCore` | Binds `ICallerContext` to `ClaimsPrincipal` |
+| `Rag.NET.Security.Audit.Sqlite` | SQLite-backed audit log, split out so Security carries no native binary |
+| `Rag.NET.Resilience` | [Polly retry and circuit-breaking](guide/resilience.md), token-bucket rate limiting, multi-provider chat fallback chain |
+| `Rag.NET.Caching` | `UseCaching()` — the HybridCache implementation behind the embedding and result caches |
+| `Rag.NET.Storage.Sqlite` | BM25 and parent-chunk persistence, document sidecar, content-hash record manager, embedding-version store, persistent cost ledger |
+
+### Observability and evaluation
+
+| NuGet package | Contents |
+|--------------|----------|
+| `Rag.NET.Telemetry` | [`AddRagNetInstrumentation()`](reference/opentelemetry.md) — OpenTelemetry SDK wiring, so core and its satellites take no SDK dependency |
+| `Rag.NET.Diagnostics` | [In-memory pipeline traces](guide/diagnostics.md) — the last N executions with chunk scores, stage latencies and guard actions |
+| `Rag.NET.Diagnostics.AspNetCore` | Opt-in `MapRagNetTrace()` HTTP endpoint for those traces |
+| `Rag.NET.Evaluation` | [LLM-judge and embedding-distance evaluators](guide/evaluation.md), A/B comparison with confidence intervals, dataset generation, [shadow capture](guide/shadow-mode.md) |
+| `Rag.NET.Evaluation.Ragas` | RAGAS-style metrics — faithfulness, answer relevancy, context precision and recall |
+
+### Serving and integration
+
+| NuGet package | Contents |
+|--------------|----------|
+| `Rag.NET.Api` | ASP.NET Core REST API over a pipeline |
+| `Rag.NET.Api.Client` | `IRagPipeline` implemented over HTTP against that API |
+| `Rag.NET.Api.Grpc` | gRPC service over a pipeline |
+| `Rag.NET.Api.Grpc.Client` | `IRagPipeline` implemented over gRPC against that service |
+| `Rag.NET.Mcp` | [Model Context Protocol server](guide/mcp.mdx) exposing a pipeline as MCP tools |
+| `Rag.NET.Mcp.AspNetCore` | HTTP transport for the MCP server, which refuses to serve an unauthenticated write surface |
+| `Rag.NET.Mcp.Tool` | Self-contained MCP server as a dotnet global tool, configured entirely from `appsettings.json` |
+| `Rag.NET.Cli` | `ragnet` global tool — ingest into, and query, a configured pipeline |
+| `Rag.NET.Hosting` | Configuration-driven pipeline wiring for an executable |
+| `Rag.NET.Mediator` | [ZeroAlloc.Mediator integration](guide/mediator.md) — dispatch ingest/retrieve/delete via `IMediator` |
 
 ## Requirements
 

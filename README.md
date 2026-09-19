@@ -1,5 +1,13 @@
 # Rag.NET
 
+[![NuGet](https://img.shields.io/nuget/v/Rag.NET.svg?logo=nuget&label=Rag.NET)](https://www.nuget.org/packages/Rag.NET)
+[![Downloads](https://img.shields.io/nuget/dt/Rag.NET.svg?logo=nuget&label=downloads)](https://www.nuget.org/packages/Rag.NET)
+[![CI](https://img.shields.io/github/actions/workflow/status/MarcelRoozekrans/Rag.NET/ci.yml?branch=main&logo=github&label=build)](https://github.com/MarcelRoozekrans/Rag.NET/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-website-blue)](https://marcelroozekrans.github.io/Rag.NET/)
+[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/download/dotnet/10.0)
+[![License](https://img.shields.io/github/license/MarcelRoozekrans/Rag.NET)](LICENSE)
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/MarcelRoozekrans?logo=githubsponsors&color=ea4aaa&label=Sponsor)](https://github.com/sponsors/MarcelRoozekrans)
+
 A modular RAG (Retrieval-Augmented Generation) pipeline library for .NET. Built on [Microsoft.Extensions.AI](https://devblogs.microsoft.com/dotnet/introducing-microsoft-extensions-ai-preview/) abstractions, it provides document ingestion, chunking, vector storage, retrieval, and chat with streaming support.
 
 **[Documentation site](https://marcelroozekrans.github.io/Rag.NET/)** — the guide and reference,
@@ -7,9 +15,11 @@ rendered and searchable. The same pages live under [`docs/`](docs/) if you prefe
 
 ## Features
 
-A selection. The library ships **73 packages**; the full, per-feature inventory with its
-verification status is [docs/reference/features.md](docs/reference/features.md), and
-[the guide](docs/guide/) covers each subsystem in depth.
+A selection. The library ships **73 packages**, and [the guide](docs/guide/) covers each
+subsystem in depth. [docs/reference/features.md](docs/reference/features.md) is the maintainers'
+per-feature ledger — what is done, what exercises it, which phase owns the rest. It is kept in
+the repository rather than published to the documentation site, because it answers "where does
+this project stand" and not "what does this library do".
 
 **The pipeline**
 
